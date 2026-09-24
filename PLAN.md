@@ -1,5 +1,13 @@
 # Setline plan
 
+## Independent Codex copy (1.19.1)
+
+- Imported Claude's complete 1.19.0 release and history from commit `372f5e564cd4b356b07a92f78e99c720b4325ce6` into the separate `Setline-Codex` repository. The original `Setline` repository remains available independently.
+- This copy uses its own IndexedDB database, browser settings and API-key names, quota and notification flags, service-worker caches, Google Drive backup filenames, and installed-app name. A fresh install therefore starts with empty local data and needs its own voice keys; backup import can transfer user data intentionally, but keys are never in backups.
+- Corrected the Windows module-syntax test path. Runtime microphone, provider speed, background notifications and installation still require a real Android phone check.
+- GitHub Pages must be enabled for this repository if its URL is not live yet. The original app's service worker may clear this app's offline cache when it activates because the original deletes every other origin cache; this copy cannot change that original behavior.
+- Further product refinements should build on this complete Claude release; the import does not itself verify new features on Omar's device.
+
 Source: SPEC.md section 7. Work one phase at a time; stop after each and wait for the go-ahead.
 
 ## Status

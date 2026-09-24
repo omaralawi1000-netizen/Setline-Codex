@@ -1,8 +1,8 @@
 // Service worker: precached app shell, runtime cache for Google Fonts.
 // Bump VERSION on every release (keep js/version.js in sync).
-const VERSION = '1.19.0';
-const CACHE = 'setline-' + VERSION;
-const FONTS = 'setline-fonts';
+const VERSION = '1.19.1';
+const CACHE = 'setline-codex-' + VERSION;
+const FONTS = 'setline-codex-fonts';
 const SHELL = [
   './',
   'index.html',
@@ -99,7 +99,7 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
-    for (const k of await caches.keys()) if (k !== CACHE && k !== FONTS) await caches.delete(k);
+    for (const k of await caches.keys()) if (k.startsWith('setline-codex-') && k !== CACHE && k !== FONTS) await caches.delete(k);
     await self.clients.claim();
   })());
 });
@@ -124,7 +124,7 @@ async function waitRest(r) {
   const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   if (all.some(c => c.visibilityState === 'visible' && c.focused)) return; // the app is open: it rings itself
   await self.registration.showNotification(r.title, {
-    body: r.body || '', tag: 'setline-rest', renotify: true, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
+    body: r.body || '', tag: 'setline-codex-rest', renotify: true, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png',
     vibrate: [220, 90, 220, 90, 320], timestamp: r.endsAt, data: { url: './' }
   });
 }
@@ -154,13 +154,21 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  if (url.origin !== self.location.origin) return;
+  if (url.origin !== self.location.origin || !url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
 
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
     if (req.mode === 'navigate') {
-      return (await cache.match('index.html')) || fetch(req);
+      const hit = await cache.match('index.html');
+      if (hit) return hit;
+      const response = await fetch(req);
+      if (response.ok) await cache.put('index.html', response.clone());
+      return response;
     }
-    return (await cache.match(req, { ignoreSearch: true })) || fetch(req);
+    const hit = await cache.match(req, { ignoreSearch: true });
+    if (hit) return hit;
+    const response = await fetch(req);
+    if (response.ok) await cache.put(req, response.clone());
+    return response;
   })());
 });

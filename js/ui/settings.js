@@ -271,7 +271,7 @@ export function initSettings(actions, root) {
       const blob = new Blob([JSON.stringify(makeBackup(state), null, 1)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `setline-backup-${dateKey()}.json`;
+      a.download = `setline-codex-backup-${dateKey()}.json`;
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);

@@ -317,16 +317,16 @@ function scheduleRestAlert() {
   restTimer = setTimeout(async () => {
     restFor = 0;
     if (document.visibilityState === 'visible') return;
-    (await navigator.serviceWorker?.ready)?.showNotification(msg.title, { body: msg.body, tag: 'setline-rest', renotify: true, icon: 'icons/icon-192.png', vibrate: [220, 90, 220, 90, 320] });
+    (await navigator.serviceWorker?.ready)?.showNotification(msg.title, { body: msg.body, tag: 'setline-codex-rest', renotify: true, icon: 'icons/icon-192.png', vibrate: [220, 90, 220, 90, 320] });
   }, r.endsAt - Date.now());
 }
 
 // The first rest asks once (after the set's own toast has gone) whether to ping you when it ends.
 function maybeAskAlerts() {
   if (state.settings.restAlerts || !globalThis.Notification || Notification.permission === 'denied') return;
-  try { if (localStorage.getItem('setline.alertsAsked')) return; localStorage.setItem('setline.alertsAsked', '1'); } catch { return; }
+  try { if (localStorage.getItem('setline-codex.alertsAsked')) return; localStorage.setItem('setline-codex.alertsAsked', '1'); } catch { return; }
   setTimeout(() => {
-    if (!state.active?.rest || document.querySelector('#toast.show')) { try { localStorage.removeItem('setline.alertsAsked'); } catch {} return; }
+    if (!state.active?.rest || document.querySelector('#toast.show')) { try { localStorage.removeItem('setline-codex.alertsAsked'); } catch {} return; }
     toast({ title: esc(state.t('alerts.ask')), sub: state.t('alerts.askSub'), action: state.t('alerts.turnOn'), ms: 9000, onAction: async () => {
       const p = await Notification.requestPermission();
       if (p === 'granted') { store.setSettings({ restAlerts: true }); toast({ title: esc(state.t('alerts.on')) }); }

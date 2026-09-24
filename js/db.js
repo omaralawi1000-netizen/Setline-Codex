@@ -1,5 +1,5 @@
 // Small IndexedDB wrapper. Schema version + ordered migrations.
-const NAME = 'setline';
+const NAME = 'setline-codex';
 export const SCHEMA_VERSION = 4;
 
 const MIGRATIONS = {

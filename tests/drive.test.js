@@ -9,8 +9,8 @@ test('client ids are recognised', () => {
 });
 
 test('file names carry the date; only the newest 14 are kept', () => {
-  assert.equal(D.fileName('2026-09-24'), 'setline-2026-09-24.json');
-  assert.equal(D.dateOfFile('setline-2026-09-24.json'), '2026-09-24');
+  assert.equal(D.fileName('2026-09-24'), 'setline-codex-2026-09-24.json');
+  assert.equal(D.dateOfFile('setline-codex-2026-09-24.json'), '2026-09-24');
   assert.equal(D.dateOfFile('other.json'), null);
   const files = Array.from({ length: 20 }, (_, i) => ({ id: 'f' + i, name: D.fileName(`2026-09-${String(i + 1).padStart(2, '0')}`) }));
   files.push({ id: 'x', name: 'notes.txt' });

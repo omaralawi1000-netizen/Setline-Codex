@@ -14,8 +14,8 @@ export const validClientId = v => CLIENT_RE.test(String(v || '').trim());
 
 // ---------- pure helpers ----------
 
-export const fileName = date => `setline-${date}.json`;
-export const dateOfFile = name => /^setline-(\d{4}-\d{2}-\d{2})\.json$/.exec(name || '')?.[1] || null;
+export const fileName = date => `setline-codex-${date}.json`;
+export const dateOfFile = name => /^setline-codex-(\d{4}-\d{2}-\d{2})\.json$/.exec(name || '')?.[1] || null;
 
 // Backup files to delete: everything past the newest `keep` (by date in the name).
 export function toPrune(files, keep = KEEP) {

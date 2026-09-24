@@ -5,7 +5,7 @@ import { sanitizeGoals } from './goals.js';
 import { sanitizeTargets, sanitizeQuick } from './nutrition.js';
 import { sanitizeSteps } from './progression.js';
 
-export const SETTINGS_KEY = 'setline.settings';
+export const SETTINGS_KEY = 'setline-codex.settings';
 
 export const DEFAULTS = Object.freeze({
   lang: 'auto',        // auto | da | en

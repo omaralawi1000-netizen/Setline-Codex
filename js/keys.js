@@ -1,5 +1,5 @@
 // API keys: only in this browser's localStorage, never in settings, logs or backups.
-const KEY = 'setline.keys';
+const KEY = 'setline-codex.keys';
 
 function read(storage) {
   try { const v = JSON.parse(storage.getItem(KEY) || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }

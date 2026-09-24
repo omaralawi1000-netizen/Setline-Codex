@@ -70,7 +70,7 @@ export function limitError(status, body, modelId = '') {
 }
 
 // Models whose daily quota ran out: skipped until the quota resets (midnight Pacific time).
-const EXHAUSTED = 'setline.exhausted';
+const EXHAUSTED = 'setline-codex.exhausted';
 export function nextQuotaReset(now = Date.now()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(now)).map(p => [p.type, p.value]));
   const sinceMidnight = ((Number(parts.hour) * 60 + Number(parts.minute)) * 60 + Number(parts.second)) * 1000;
