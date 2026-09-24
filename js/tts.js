@@ -64,11 +64,15 @@ export function pickTtsModel(models, preferred, quality = 'fast') {
 }
 
 export async function listModels(key) {
-  const res = await fetch(`${API}/models?pageSize=1000`, { headers: { 'x-goog-api-key': key } });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+  const res = await fetch(`${API}/models?pageSize=1000`, { signal: controller.signal, headers: { 'x-goog-api-key': key } });
   if (res.status === 400 || res.status === 401 || res.status === 403) return { status: 'bad' };
   if (!res.ok) return { status: String(res.status) };
   const data = await res.json();
   return { status: 'ok', models: data.models || [] };
+  } finally { clearTimeout(timer); }
 }
 
 // ---------- synthesis ----------
@@ -177,36 +181,17 @@ export function cleanSpeech(x, rate = RATE, text = '') {
     if (last && f - last.end <= 8) last.end = f + 1; else segs.push({ start: f, end: f + 1 });
   }
   const zcr = (a, b) => { let z = 0; for (let i = a + 1; i < b; i++) if ((out[i - 1] < 0) !== (out[i] < 0)) z++; return z / Math.max(1, b - a); };
-  const segRms = sg => { let e = 0, c = 0; for (let f = sg.start; f < sg.end; f++) { e += rms[f]; c++; } return e / Math.max(1, c); };
-  // 1. what the model adds after it's done: a short non-voice blip, or a quiet "ghost" after a pause
+  // Only remove short non-speech artifacts. Quiet words and slow replies are valid speech.
   for (let k = 0; k < 3 && segs.length > 1; k++) {
     const last = segs[segs.length - 1], prev = segs[segs.length - 2];
     const len = last.end - last.start, gap = last.start - prev.end;
     const z = zcr(last.start * F, Math.min(n, last.end * F));
     const speechy = z * rate > 300 && z < 0.3; // crossings per second: voice sits well inside this
-    const body = segs.slice(0, -1).map(segRms).sort((a, b) => a - b);
-    const typical = body[body.length >> 1] || 0;
-    const ghost = gap >= 20 && len <= 150 && segRms(last) < typical * 0.3;
-    if ((gap >= 8 && len <= 40 && !speechy) || ghost) segs.pop(); else break;
+    if (gap >= 8 && len <= 40 && !speechy) segs.pop(); else break;
   }
-  let hardEnd = Infinity;
-  // 2. longer than the text could take: end at the last pause that fits the text
-  if (text && segs.length > 1) {
-    const chars = String(text).length + (String(text).match(/\d/g) || []).length * 4; // numbers take longer to say
-    const expected = chars / 14, allowed = expected * 1.45 + 0.35;
-    const endS = seg => (seg.end * F) / rate;
-    if (endS(segs[segs.length - 1]) > allowed) {
-      let cut = -1;
-      for (let i = 0; i < segs.length - 1; i++) {
-        if (endS(segs[i]) > allowed) break;
-        if (segs[i + 1].start - segs[i].end >= 12 && endS(segs[i]) >= expected * 0.6) cut = i;
-      }
-      if (cut >= 0) segs.length = cut + 1;
-      else if (endS(segs[segs.length - 1]) > expected * 2 + 0.5) hardEnd = Math.round((allowed * rate) / F); // no pause to end on: fade out there
-    }
-  }
+  void text; // Character count cannot determine how long a natural spoken reply should take.
   let end = n;
-  if (segs.length) end = Math.min(n, (segs[segs.length - 1].end + 18) * F, hardEnd * F); // keep 180 ms of natural decay
+  if (segs.length) end = Math.min(n, (segs[segs.length - 1].end + 18) * F);
   const clip = out.subarray(0, end);
   const fadeIn = Math.min(clip.length, Math.round(rate * 0.01)), fadeOut = Math.min(clip.length, Math.round(rate * 0.12));
   for (let i = 0; i < fadeIn; i++) clip[i] *= i / fadeIn;

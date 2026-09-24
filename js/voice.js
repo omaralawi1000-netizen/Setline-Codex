@@ -5,8 +5,10 @@ import { audioContext } from './audio.js';
 export const MAX_MS = 60_000; // room to stop and think mid-sentence
 
 let rec = null; // {stream, recorder, chunks, analyser, source, startedAt, peak, timer, resolve}
+let generation = 0, opening = false;
 
 export const isRecording = () => !!rec;
+export const isOpening = () => opening;
 
 function pickMime() {
   const opts = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
@@ -14,22 +16,36 @@ function pickMime() {
 }
 
 // Start recording. Resolves once the mic is open. Throws {code:'denied'|'nomic'|'unsupported'|'busy'}.
-export async function start({ onMaxed, maxMs = MAX_MS } = {}) {
-  if (rec) return;
+export async function start({ onMaxed, onInterrupted, maxMs = MAX_MS } = {}) {
+  if (rec || opening) throw Object.assign(new Error('busy'), { code: 'busy' });
   if (!navigator.mediaDevices?.getUserMedia || !globalThis.MediaRecorder) throw Object.assign(new Error('unsupported'), { code: 'unsupported' });
+  if (document.visibilityState === 'hidden') throw Object.assign(new Error('cancelled'), { code: 'cancelled' });
+  const ticket = ++generation;
+  opening = true;
   let stream;
   try {
     // No echo cancellation: nothing plays while recording, and on Android it switches the phone into
     // call audio, which is slower to open, can clip the first word and pops the speaker on the way back.
     stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
   } catch (e) {
+    if (ticket === generation) opening = false;
     const code = e?.name === 'NotAllowedError' || e?.name === 'SecurityError' ? 'denied' : e?.name === 'NotFoundError' ? 'nomic' : 'busy';
     throw Object.assign(new Error(code), { code });
   }
+  if (ticket !== generation || document.visibilityState === 'hidden') {
+    stream.getTracks().forEach(t => t.stop());
+    if (ticket === generation) opening = false;
+    throw Object.assign(new Error('cancelled'), { code: 'cancelled' });
+  }
+  let r;
+  try {
   const mimeType = pickMime();
   const recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 32000 } : undefined);
-  const r = { stream, recorder, chunks: [], analyser: null, source: null, startedAt: performance.now(), peak: 0, buf: null, timer: 0, frames: 0 };
+  r = { stream, recorder, chunks: [], analyser: null, source: null, startedAt: performance.now(), peak: 0, buf: null, timer: 0, frames: 0 };
   recorder.ondataavailable = e => { if (e.data?.size) r.chunks.push(e.data); };
+  const interrupted = () => { if (rec !== r) return; cancel(); onInterrupted?.(); };
+  recorder.onerror = interrupted;
+  stream.getTracks().forEach(track => track.addEventListener?.('ended', interrupted, { once: true }));
   const ac = audioContext();
   if (ac) {
     try {
@@ -45,6 +61,10 @@ export async function start({ onMaxed, maxMs = MAX_MS } = {}) {
   recorder.start(250);
   r.timer = setTimeout(() => onMaxed?.(), maxMs);
   rec = r;
+  } catch (e) {
+    if (r) release(r); else stream.getTracks().forEach(t => t.stop());
+    throw Object.assign(new Error('busy'), { code: 'busy' });
+  } finally { if (ticket === generation) opening = false; }
 }
 
 // Current input level, 0..1 (RMS, shaped for display).
@@ -69,11 +89,17 @@ function release(r) {
 
 // Stop and return {blob, ms, peak}. The mic is closed before this resolves.
 export function stop() {
+  generation++;
+  opening = false;
   const r = rec;
   rec = null;
   if (!r) return Promise.resolve(null);
   return new Promise(res => {
+    let settled = false, timer;
     const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       release(r);
       const type = r.recorder.mimeType || 'audio/webm';
       // measured: the level meter really ran, so a low peak means silence
@@ -81,8 +107,11 @@ export function stop() {
     };
     if (r.recorder.state === 'inactive') return done();
     r.recorder.onstop = done;
+    r.recorder.onerror = done;
     try { r.recorder.requestData(); } catch {}
-    r.recorder.stop();
+    timer = setTimeout(done, 1500);
+    try { r.recorder.stop(); } catch { done(); }
+    release(r);
   });
 }
 
@@ -93,6 +122,8 @@ export function snapshot() {
 }
 
 export function cancel() {
+  generation++;
+  opening = false;
   const r = rec;
   rec = null;
   if (!r) return;

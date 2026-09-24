@@ -65,7 +65,9 @@ export function goalStatus(g, history, now = Date.now(), { step = 2.5, repsNow =
   const rate = trend != null && current != null ? Math.min(Math.max(0, trend), current * 0.015) : null;
   const projected = rate != null ? current + rate * weeksLeft : null;
   let state;
-  if (current != null && current >= target) state = 'done';
+  const achieved = history.some(w => w.exercises.some(ex => ex.exerciseId === g.exerciseId &&
+    ex.sets.some(s => counts(s) && s.kg >= g.kg && s.reps >= g.reps)));
+  if (achieved) state = 'done';
   else if (now > g.deadline) state = 'missed';
   else if (current == null || projected == null) state = 'new';
   else if (projected >= target * 1.02) state = 'ahead';

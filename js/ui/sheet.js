@@ -15,9 +15,14 @@ export function openSheet(render, { onClose = null, label = '' } = {}) {
   el.className = 'sheet glass';
   el.setAttribute('role', 'dialog');
   el.setAttribute('aria-modal', 'true');
+  el.tabIndex = -1;
   if (label) el.setAttribute('aria-label', label);
   app.append(scrim, el);
-  const entry = { el, scrim, onClose };
+  const entry = { el, scrim, onClose, trigger: document.activeElement, blocked: [] };
+  for (const node of app.children) {
+    if (node === el || node === scrim || node.inert) continue;
+    entry.blocked.push(node); node.inert = true;
+  }
   stack.push(entry);
   history.pushState({ ...(history.state || {}), sheet: stack.length }, '');
 
@@ -35,10 +40,20 @@ export function openSheet(render, { onClose = null, label = '' } = {}) {
     box.className = 'sin';
     el.append(box);
     fn(box, api);
-    const f = box.querySelector('[autofocus]');
-    if (f) setTimeout(() => f.focus({ preventScroll: true }), 60);
+    const f = box.querySelector('[autofocus]') || el;
+    requestAnimationFrame(() => { if (stack.at(-1) === entry) f.focus({ preventScroll: true }); });
   }
   fill(render);
+  el.addEventListener('keydown', e => {
+    if (stack.at(-1) !== entry) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeTop(); return; }
+    if (e.key !== 'Tab') return;
+    const nodes = [...el.querySelectorAll('button, input, select, textarea, a[href], [tabindex]')]
+      .filter(n => !n.disabled && n.tabIndex >= 0 && n.getClientRects().length && !n.closest('[inert]'));
+    const first = nodes[0] || el, last = nodes.at(-1) || el;
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === el)) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || document.activeElement === el)) { e.preventDefault(); first.focus(); }
+  });
   scrim.addEventListener('click', () => closeTop());
   dragToClose(el, scrim, entry);
   requestAnimationFrame(() => requestAnimationFrame(() => { scrim.classList.add('show'); el.classList.add('show'); }));
@@ -76,6 +91,10 @@ function dragToClose(el, scrim, entry) {
 }
 
 function dismiss(entry) {
+  entry.el.inert = true;
+  entry.blocked.forEach(node => { if (node.isConnected) node.inert = false; });
+  const focus = entry.trigger?.isConnected && !entry.trigger.closest('[inert]') ? entry.trigger : stack.at(-1)?.el;
+  focus?.focus({ preventScroll: true });
   entry.el.classList.remove('show');
   entry.scrim.classList.remove('show');
   const kill = () => { entry.el.remove(); entry.scrim.remove(); };

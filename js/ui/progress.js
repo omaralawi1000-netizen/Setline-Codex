@@ -13,6 +13,7 @@ import { sparkline } from '../stats.js';
 import { balanceHTML } from './today.js';
 import { sleepTrend } from '../checkin.js';
 import { figureHTML } from './figure.js';
+import { toDisplay } from '../units.js';
 
 let range = 12;
 export const setRange = r => { range = r; };
@@ -24,7 +25,7 @@ const short = t => new Intl.DateTimeFormat(state.lang === 'da' ? 'da-DK' : 'en-G
 export function renderProgress(root) {
   const { t, lang } = state;
   const weeks = weeklySeries(state.history, state.cardio, range);
-  const vol = weeks.reduce((a, w) => a + w.volume, 0);
+  const vol = toDisplay(weeks.reduce((a, w) => a + w.volume, 0), state.settings.unit);
   const cmin = weeks.reduce((a, w) => a + w.cardioMin, 0);
   const axis = [{ x: 'start', text: short(weeks[0].t) }, { x: 'end', text: t('progress.thisWeek') }];
   const bw = bodyTrend(state.bodyweight);
@@ -40,7 +41,7 @@ export function renderProgress(root) {
 
     <div class="chartcard solid">
       <div class="chead"><span class="label">${t('progress.volume')}</span><span class="cval"><b data-count="${Math.round(vol)}">0</b> ${u()}</span></div>
-      ${barChart(weeks.map((w, i) => ({ v: w.volume, label: short(w.t), hot: i === weeks.length - 1 })), { axis, fmt: v => `${Math.round(v)} ${u()}` })}
+      ${barChart(weeks.map((w, i) => ({ v: toDisplay(w.volume, state.settings.unit), label: short(w.t), hot: i === weeks.length - 1 })), { axis, fmt: v => `${Math.round(v)} ${u()}` })}
     </div>
     <div class="chartcard solid">
       <div class="chead"><span class="label">${t('label.cardio')}</span><span class="cval"><b data-count="${cmin}">0</b> min</span></div>

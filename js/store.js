@@ -39,7 +39,8 @@ export const state = {
   measures: [],    // body measurements, by date
   photos: [],      // progress photos {id, date, pose, t, thumb, blob}
   undo: [],
-  error: null
+  error: null,
+  saveState: 'saved'
 };
 
 export const subscribe = fn => (listeners.add(fn), () => listeners.delete(fn));
@@ -90,14 +91,31 @@ export async function init() {
 
 // ---- active workout persistence: serialized, latest value wins ----
 let writing = Promise.resolve();
+let saveRevision = 0, lastSaveError = null, ending = null;
+function saveFailed(e) {
+  lastSaveError = e;
+  state.saveState = 'error';
+  emit('persistence');
+}
 function persistActive() {
   const value = state.active;
+  const revision = ++saveRevision;
+  state.saveState = 'saving';
+  emit('persistence');
   writing = writing.then(() => (value ? db.put('meta', value, 'activeWorkout') : db.del('meta', 'activeWorkout')))
-    .then(() => { if (state.error) { state.error = null; emit('error'); } })
-    .catch(e => { console.error('save failed', e.name); state.error = 'storage'; emit('error'); });
+    .then(() => {
+      if (revision !== saveRevision) return;
+      lastSaveError = null; state.saveState = 'saved'; emit('persistence');
+    })
+    .catch(e => { if (revision === saveRevision) saveFailed(e); });
   return writing;
 }
-export const flush = () => writing;
+export async function flush() {
+  let pending;
+  do { pending = writing; await pending; } while (pending !== writing);
+  if (lastSaveError) throw lastSaveError;
+}
+export async function retrySave() { if (ending) return ending; await persistActive(); await flush(); }
 
 export function startWorkout(template, { readiness = null, easy = false } = {}) {
   if (state.active) return state.active;
@@ -114,7 +132,7 @@ export function startWorkout(template, { readiness = null, easy = false } = {}) 
 
 // Apply a pure update to the active workout. undo: label to allow undoing it.
 export function update(fn, { undo = null, reason = 'update' } = {}) {
-  if (!state.active) return null;
+  if (!state.active || ending) return null;
   const before = state.active;
   const next = fn(before);
   if (!next || next === before) return null;
@@ -129,6 +147,7 @@ export function update(fn, { undo = null, reason = 'update' } = {}) {
 }
 
 export function undo() {
+  if (ending) return false;
   const u = state.undo.pop();
   if (!u || !state.active) return false;
   state.active = u.before;
@@ -137,11 +156,16 @@ export function undo() {
   return true;
 }
 
-export async function finish() {
+export function finish() {
+  if (ending) return ending;
+  ending = finishActive().catch(e => { saveFailed(e); throw e; }).finally(() => { ending = null; });
+  return ending;
+}
+async function finishActive() {
   const w = state.active;
   if (!w) return null;
   const done = finishWorkout(w);
-  if (!doneSetCount(done)) { await discard(); return null; }
+  if (!doneSetCount(done)) { await discardActive(); return null; }
   const { records, prs } = applyWorkout(state.prs, done);
   done.prs = prs;
   await writing;
@@ -151,6 +175,7 @@ export async function finish() {
     s.meta.delete('activeWorkout');
   });
   state.active = null;
+  lastSaveError = null; state.saveState = 'saved'; emit('persistence');
   state.undo = [];
   state.prs = records;
   state.history = [done, ...state.history].sort((a, b) => b.startedAt - a.startedAt);
@@ -164,10 +189,17 @@ export async function finish() {
   return done;
 }
 
-export async function discard() {
+export function discard() {
+  if (ending) return ending;
+  ending = discardActive().catch(e => { saveFailed(e); throw e; }).finally(() => { ending = null; });
+  return ending;
+}
+async function discardActive() {
+  await writing;
+  await db.del('meta', 'activeWorkout');
   state.active = null;
   state.undo = [];
-  await persistActive();
+  lastSaveError = null; state.saveState = 'saved'; emit('persistence');
   emit('discard');
 }
 
@@ -411,6 +443,7 @@ export function setSettings(patch) {
 export async function resetAll() {
   await writing;
   await db.wipe();
+  lastSaveError = null; state.saveState = 'saved'; emit('persistence');
   try { localStorage.removeItem(SETTINGS_KEY); } catch {}
   clearKeys();
   state.settings = loadSettings();

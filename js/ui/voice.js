@@ -45,6 +45,12 @@ const v = {
   raf: 0, lvl: 0, hist: new Float32Array(64), histAt: 0
 };
 const card = { cmd: null, timer: 0, hideTimer: 0, committed: false, undoOp: null };
+let commandSeq = 0, aiController = null, sttController = null;
+function invalidateCommand() { commandSeq++; aiController?.abort(); aiController = null; }
+function stopTranscription() {
+  sttController?.abort(); sttController = null;
+  v.spec?.controller.abort(); v.spec = null; v.waiting = false;
+}
 
 const el = {};
 
@@ -76,10 +82,10 @@ const snapshot = () => ({
 });
 
 function speak(text, lang) {
-  if (!text || state.settings.spoken === 'off') return;
+  if (!text || state.settings.spoken === 'off' || document.visibilityState === 'hidden') return;
   tts.speak(text, {
     key: getKey('google'), model: ttsModelId(state.settings), alt: ttsAlt(state.settings), voice: state.settings.voice, lang,
-    canSpeak: () => !mic.isRecording()
+    canSpeak: () => !mic.isRecording() && !mic.isOpening() && document.visibilityState !== 'hidden'
   });
 }
 
@@ -115,7 +121,7 @@ function build() {
   mini.innerHTML = `<div class="oscrim" data-o="cancel"></div>
     <div class="obubble"><span class="ostatus" id="ostatus"></span><p class="osay" id="osay"></p></div>
     <div class="opull" id="opull" aria-hidden="true"><svg class="i" viewBox="0 0 24 24"><path d="M6 14.5l6-6 6 6"/></svg><span></span></div>
-    <span class="owrap" id="owrap" data-o="orb"><span class="orb lift" id="oorb"><i class="core"><b></b><b></b><b></b></i><i class="spin"></i></span><span class="oglow"></span></span>`;
+    <button type="button" class="owrap" id="owrap" data-o="orb"><span class="orb lift" id="oorb"><i class="core"><b></b><b></b><b></b></i><i class="spin"></i></span><span class="oglow"></span></button>`;
   document.getElementById('app').appendChild(mini);
   Object.assign(el, {
     mini, owrap: mini.querySelector('#owrap'), oorb: mini.querySelector('#oorb'), ostatus: mini.querySelector('#ostatus'), osay: mini.querySelector('#osay'), opull: mini.querySelector('#opull'),
@@ -135,6 +141,7 @@ function paintStatic() {
   el.layer.querySelector('[data-v=close]').setAttribute('aria-label', t('common.close'));
   el.lang.textContent = t(`voice.lang.${state.settings.voiceLang}`);
   el.input.placeholder = t('voice.typePh');
+  el.input.setAttribute('aria-label', t('voice.type'));
   el.type.querySelector('.send').setAttribute('aria-label', t('voice.send'));
   const hints = state.active
     ? ['voice.hint.same', 'voice.hint.add', 'voice.hint.skip', 'voice.hint.next', 'voice.hint.last']
@@ -157,6 +164,8 @@ function setPhase(phase) {
   el.mini.dataset.phase = phase;
   el.mini.dataset.toggle = v.toggle ? '1' : '';
   el.ostatus.textContent = t(phase === 'listening' && v.toggle ? 'voice.tapSendMini' : status);
+  el.owrap.setAttribute('aria-label', t(rec ? 'voice.tapSend' : 'voice.talk'));
+  el.owrap.setAttribute('aria-pressed', String(phase === 'listening'));
 }
 
 const translateY = node => { const t = getComputedStyle(node).transform; return t && t !== 'none' ? new DOMMatrix(t).m42 : 0; };
@@ -312,9 +321,15 @@ export function openVoice() {
 }
 
 // Close; resolves once history has settled so callers can navigate safely.
-export function closeVoice({ fromPop = false } = {}) {
+export function closeVoice({ fromPop = false, preserve = false } = {}) {
+  if (!preserve) {
+    invalidateCommand();
+    if (card.cmd && !card.committed) dismissCard({ keepPending: false });
+  }
+  stopTranscription();
   if (!v.open) return v.closing || Promise.resolve();
   v.open = false;
+  if (el.mini.contains(document.activeElement) || el.layer.contains(document.activeElement)) document.querySelector('#dock .orbbtn')?.focus({ preventScroll: true });
   v.token++;
   v.press = null;
   v.toggle = false;
@@ -387,7 +402,7 @@ function startLoop() {
     if (listening && v.toggle) {
       const ev = endpoint.push(target, dt);
       if (ev === 'pause') speculate();
-      else if (ev === 'resume') { v.spec = null; v.waiting = false; setPausing(''); }
+      else if (ev === 'resume') { v.spec?.controller.abort(); v.spec = null; v.waiting = false; setPausing(''); }
       if (v.waiting && endpoint.quietMs >= WAIT_MS) { v.waiting = false; finishRec(); }
     }
     if (reduced()) return;
@@ -433,6 +448,8 @@ function preflight() {
 
 async function startRec() {
   if (mic.isRecording() || v.phase === 'opening') return;
+  invalidateCommand();
+  stopTranscription();
   if (!preflight()) return;
   tts.stop();
   if (card.cmd) dismissCard(); // lands a pending command
@@ -441,7 +458,10 @@ async function startRec() {
   setPhase('opening');
   const opening = performance.now();
   try {
-    await mic.start({ onMaxed: () => finishRec() });
+    await mic.start({ onMaxed: () => finishRec(), onInterrupted: () => {
+      if (token !== v.token) return;
+      cancelRec(); showError('voice.sttFailed', 'voice.sttFailedSub', { retry: true, type: true });
+    } });
   } catch (e) {
     if (token !== v.token) return;
     v.toggle = false;
@@ -481,10 +501,11 @@ const withCarry = text => { const c = v.carry; v.carry = ''; return [c, text].fi
 async function speculate() {
   const blob = mic.snapshot();
   if (!blob || blob.size < 800) return;
-  const spec = v.spec = { token: v.token };
+  v.spec?.controller.abort();
+  const spec = v.spec = { token: v.token, controller: new AbortController() };
   setPausing('check');
   let text;
-  try { text = await transcribe(blob, sttOpts()); }
+  try { text = await transcribe(blob, { ...sttOpts(), signal: spec.controller.signal }); }
   catch { if (v.spec === spec) { v.spec = null; v.waiting = true; setPausing(''); } return; }
   if (v.spec !== spec || spec.token !== v.token || !mic.isRecording() || v.phase !== 'listening') return;
   v.spec = null;
@@ -506,14 +527,15 @@ async function finishRec() {
   if (!mic.isRecording()) return;
   const token = v.token;
   v.toggle = false;
-  v.spec = null; v.waiting = false; setPausing('');
+  stopTranscription(); setPausing('');
   setPhase('thinking');
   const r = await mic.stop();
   if (!r || token !== v.token) return;
   if (r.ms < 400 || (r.measured && r.peak < 0.03) || r.blob.size < 800) return showError('voice.tooShort', 'voice.tooShortSub');
   let text;
+  const controller = sttController = new AbortController();
   try {
-    text = await transcribe(r.blob, sttOpts());
+    text = await transcribe(r.blob, { ...sttOpts(), signal: controller.signal });
   } catch (e) {
     if (token !== v.token) return;
     const map = { offline: ['voice.offline', 'voice.offlineSub'], badkey: ['voice.badKey', 'voice.badKeySub'], busy: ['voice.busy', 'voice.busySub'], nokey: ['voice.noKey', 'voice.noKeySub'] };
@@ -528,6 +550,8 @@ async function finishRec() {
 }
 
 function cancelRec() {
+  invalidateCommand();
+  stopTranscription();
   v.token++;
   v.toggle = false;
   v.pendingStop = false;
@@ -545,9 +569,10 @@ function showWords(text) {
 export function handleText(text, { typed = false } = {}) {
   text = String(text || '').trim();
   if (!text) return;
-  if (card.cmd && !card.committed && card.cmd.kind === 'auto') commitNow(); // a new command lands the previous one
-  if (v.open) showWords(text);
+  invalidateCommand();
   const intent = parse(text, parseCtx());
+  if (intent.type !== 'Cancel' && card.cmd && !card.committed && card.cmd.kind === 'auto') commitNow();
+  if (v.open) showWords(text);
   if (intent.type === 'Unknown') {
     if (isQuestion(text) || isPlanRequest(text)) return toCoach(text);
     if (getKey('google')) return aiFallback(text, intent, { typed });
@@ -572,6 +597,7 @@ export function handleAmbient(text) {
   }
   const intent = parse(raw, parseCtx());
   if (!HF_OK.has(intent.type)) return false;
+  invalidateCommand();
   if (card.cmd && !card.committed && card.cmd.kind === 'auto') commitNow();
   present(intent);
   return true;
@@ -582,21 +608,20 @@ export const speakCue = (text, lang = state.lang) => speak(text, lang);
 
 // Questions land in the Coach thread; the answer is streamed there and spoken when complete.
 async function toCoach(text) {
+  const mine = commandSeq;
   dismissCard();
-  if (v.open) { setPhase('result'); await new Promise(r => setTimeout(r, 380)); await closeVoice(); }
+  if (v.open) { setPhase('result'); await new Promise(r => setTimeout(r, 380)); if (mine !== commandSeq) return; await closeVoice({ preserve: true }); }
+  if (mine !== commandSeq) return;
   nav.go('coach');
   askCoach(text);
 }
 
 // What the parser couldn't read goes to Flash-Lite. Never blocks local commands:
 // if anything changed while it was thinking, the answer comes back as a suggestion.
-let aiSeq = 0;
-const stateSig = () => {
-  const w = state.active;
-  return w ? `${w.id}|${w.current}|${w.exercises.map(e => e.sets.filter(x => x.done).length).join(',')}|${w.rest?.startedAt || 0}` : 'none';
-};
+const stateSig = () => JSON.stringify([state.active, state.activeCardio, state.routines, state.settings.unit, state.undo.length]);
 async function aiFallback(text, parsed, { typed }) {
-  const mine = ++aiSeq;
+  const mine = commandSeq;
+  const controller = aiController = new AbortController();
   const sig = stateSig();
   const lang = langFor(parsed);
   const t = tFor(lang);
@@ -606,14 +631,15 @@ async function aiFallback(text, parsed, { typed }) {
   let intent;
   try {
     await ensureModels();
+    if (mine !== commandSeq || controller.signal.aborted) return;
     const ctx = { ...parseCtx(), hasWorkout: !!state.active };
     // 4 s in total across the chosen model and its runner-up
     const until = performance.now() + 4000;
-    intent = await withFallback(cmdModels(state.settings), model => aiCommand(text, ctx, { key: getKey('google'), model, timeout: Math.max(800, until - performance.now()) }));
+    intent = await withFallback(cmdModels(state.settings), model => aiCommand(text, ctx, { key: getKey('google'), model, signal: controller.signal, timeout: Math.max(1, until - performance.now()) }), { maxWait: 0 });
   } catch {
     intent = null;
   }
-  if (mine !== aiSeq) return; // a newer AI request superseded this one
+  if (mine !== commandSeq || controller.signal.aborted) return;
   if (intent?.type === 'question') return toCoach(text);
   const full = intent ? { ...intent, heard: text, lang: parsed.lang } : parsed;
   if (card.cmd?.kind === 'auto' && !card.committed) await commitNow();
@@ -628,6 +654,7 @@ async function aiFallback(text, parsed, { typed }) {
 }
 
 function present(intent, { typed = false } = {}) {
+  const mine = commandSeq;
   const lang = langFor(intent);
   const cmd = resolve(intent, snapshot(), tFor(lang), lang);
   cmd.lang = lang;
@@ -635,20 +662,20 @@ function present(intent, { typed = false } = {}) {
   if (cmd.kind === 'cancel') {
     dismissCard({ keepPending: false });
     speak(tFor(lang)('say.cancel'), lang);
-    if (v.open) setTimeout(() => closeVoice(), 350);
+    if (v.open) setTimeout(() => { if (mine === commandSeq) closeVoice(); }, 350);
     return;
   }
-  speak(cmd.say, lang);
+  if (cmd.kind !== 'auto') speak(cmd.say, lang);
   if (v.open && v.mode === 'mini') {
     setPhase(cmd.kind === 'error' ? 'error' : 'result');
-    setTimeout(() => { if (v.open && v.mode === 'mini') closeVoice(); }, 420);
-    setTimeout(() => showCard(cmd), 180);
+    setTimeout(() => { if (mine === commandSeq && v.open && v.mode === 'mini') closeVoice({ preserve: true }); }, 420);
+    showCard(cmd);
     return;
   }
   showCard(cmd);
   if (v.open) {
     setPhase(cmd.kind === 'error' ? 'error' : 'result');
-    if (cmd.kind !== 'error') setTimeout(() => { if (v.open && card.cmd === cmd) closeVoice(); }, cmd.kind === 'info' ? 1100 : 720);
+    if (cmd.kind !== 'error') setTimeout(() => { if (mine === commandSeq && v.open && card.cmd === cmd) closeVoice({ preserve: true }); }, cmd.kind === 'info' ? 1100 : 720);
   }
 }
 
@@ -659,7 +686,8 @@ function showError(titleKey, subKey, opts = {}) {
   if (v.open) setPhase('error');
   haptic('error');
   const sub = (subKey ? t(subKey) : '') + (opts.code ? ` (${opts.code})` : '');
-  if (v.open && v.mode === 'mini') setTimeout(() => { if (v.open && v.mode === 'mini') closeVoice(); }, 250);
+  const mine = commandSeq;
+  if (v.open && v.mode === 'mini') setTimeout(() => { if (mine === commandSeq && v.open && v.mode === 'mini') closeVoice({ preserve: true }); }, 250);
   showCard({ kind: 'error', icon: 'alert', title: t(titleKey), sub, retry: !!opts.retry, settings: !!opts.settings, type: !!opts.type, local: true });
 }
 
@@ -668,6 +696,7 @@ function showError(titleKey, subKey, opts = {}) {
 const ICON = { check: I.check, ask: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M9.3 9.2a2.8 2.8 0 1 1 3.9 2.6c-.8.4-1.2 1-1.2 1.8v.4M12 17v.1"/></svg>', alert: I.alert, info: '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 11v5.5M12 7.6v.1"/></svg>' };
 
 function showCard(cmd) {
+  cmd.contextSig = stateSig();
   clearTimeout(card.timer);
   clearTimeout(card.hideTimer);
   hideToast();
@@ -687,7 +716,7 @@ function showCard(cmd) {
     if (cmd.settings) list.push(btn('settings', t('voice.openSettings')));
     if (cmd.type || (cmd.retry && !cmd.local)) list.push(btn('edit', cmd.local ? t('voice.type') : t('voice.edit')));
     actions = list.length ? `<span class="pair">${list.slice(0, 2).join('')}</span>` : btn('close', '×', 'x');
-  } else if (cmd.kind === 'wait') actions = '<span class="spin2" aria-hidden="true"></span>';
+  } else if (cmd.kind === 'wait') actions = btn('cancel', t('common.cancel'));
   else actions = btn('close', '×', 'x');
   const chips = cmd.kind === 'ask' && cmd.choices?.length
     ? `<div class="cchips">${cmd.choices.map((ch, i) => `<button class="chip" data-c="choice" data-i="${i}">${esc(ch.label)}</button>`).join('')}</div>` : '';
@@ -743,17 +772,27 @@ async function commitNow() {
   if (fresh.kind !== 'auto') { fresh.lang = cmd.lang; showCard(fresh); return; } // state moved on: show what it means now
   const run = fresh.run;
   el.card.classList.remove('counting');
-  el.card.classList.add('done');
   if (v.closing) await v.closing;
   const ok = await execute(run, cmd);
   if (!ok) return;
+  if (card.cmd === cmd) el.card.classList.add('done');
   if (card.cmd === cmd) card.hideTimer = setTimeout(() => { if (card.cmd === cmd) dismissCard(); }, 2600);
 }
 
 async function execute(run, cmd) {
+  try {
+    const ok = await executeAction(run, cmd);
+    if (['update', 'start', 'undo'].includes(run?.op)) await store.flush();
+    if (ok) {
+      haptic('success'); orbPulse();
+      if (cmd.kind === 'auto') speak(run?.done || cmd.say, cmd.lang);
+    }
+    return ok;
+  } catch { showError('toast.storageError', 'save.unsaved'); return false; }
+}
+
+async function executeAction(run, cmd) {
   if (!run) return true;
-  haptic('success');
-  orbPulse();
   if (run.op === 'update') {
     const before = state.active;
     let next;
@@ -761,14 +800,14 @@ async function execute(run, cmd) {
     catch { showError('toast.limit', null); return false; }
     if (next) card.undoOp = { op: 'undo', before };
     if (run.nav) nav.go(run.nav);
-    if (run.done) speak(run.done, cmd.lang);
     return true;
   }
   if (run.op === 'start') {
     store.startWorkout(run.template);
     card.undoOp = { op: 'discardStart', id: state.active?.id };
     nav.go('workout');
-    if (run.then) setTimeout(() => present({ ...run.then }), 350);
+    const mine = commandSeq;
+    if (run.then) setTimeout(() => { if (mine === commandSeq) present({ ...run.then }); }, 350);
     return true;
   }
   if (run.op === 'undo') { store.undo(); return true; }
@@ -795,6 +834,7 @@ async function execute(run, cmd) {
   }
   if (run.op === 'finish') {
     const done = await store.finish();
+    haptic('success');
     dismissCard();
     if (done) nav.showDetail(done.id, { fromFinish: true }); else nav.go('today');
     return false;
@@ -833,7 +873,7 @@ function onCardClick(e) {
   const cmd = card.cmd;
   if (k === 'undo') return undoCard();
   if (k === 'close') return dismissCard();
-  if (k === 'cancel') { haptic('tap'); return dismissCard({ keepPending: false }); }
+  if (k === 'cancel') { invalidateCommand(); haptic('tap'); return dismissCard({ keepPending: false }); }
   if (k === 'confirm') { b.disabled = true; card.committed = false; return commitConfirmed(cmd); }
   if (k === 'choice') {
     const ch = cmd?.choices?.[Number(b.dataset.i)];
@@ -866,12 +906,17 @@ function onCardClick(e) {
 }
 
 async function commitConfirmed(cmd) {
-  if (!cmd) return;
+  if (!cmd || card.committed) return;
+  if (cmd.contextSig !== stateSig()) {
+    const fresh = resolve(cmd.intent, snapshot(), tFor(cmd.lang), cmd.lang);
+    if (fresh.kind === 'auto') fresh.kind = 'confirm';
+    fresh.lang = cmd.lang; showCard(fresh); return;
+  }
   card.committed = true;
   if (v.closing) await v.closing;
-  if (v.open) await closeVoice();
-  el.card.classList.add('done');
+  if (v.open) await closeVoice({ preserve: true });
   const ok = await execute(cmd.run, cmd);
+  if (ok && card.cmd === cmd) el.card.classList.add('done');
   if (ok && card.cmd === cmd) card.hideTimer = setTimeout(() => dismissCard(), 2000);
 }
 
@@ -937,6 +982,12 @@ export function initVoice(n) {
   el.hold.addEventListener('pointerdown', holdDown);
   el.hold.addEventListener('pointerup', holdUp(true));
   el.hold.addEventListener('pointercancel', () => { v.press = null; });
+  el.hold.addEventListener('click', e => {
+    if (e.detail !== 0) return;
+    unlockAudio();
+    if (mic.isRecording() || v.phase === 'opening') finishRec();
+    else { v.toggle = true; startRec(); }
+  });
   el.hold.addEventListener('contextmenu', e => e.preventDefault());
   el.layer.addEventListener('click', e => {
     const b = e.target.closest('[data-v]');
@@ -989,6 +1040,11 @@ export function initVoice(n) {
     if (v.phase === 'listening' || v.phase === 'opening') setPhase(v.phase);
   };
   document.getElementById('dock').addEventListener('pointerup', orbUp);
+  document.getElementById('dock').addEventListener('click', e => {
+    if (e.detail !== 0 || !e.target.closest('.orbbtn')) return;
+    unlockAudio();
+    if (mic.isRecording() || v.phase === 'opening') finishRec(); else { talkNow(); el.owrap.focus({ preventScroll: true }); }
+  });
   document.getElementById('dock').addEventListener('pointercancel', () => { if (v.press?.orb) { v.press = null; cancelRec(); } });
   document.getElementById('dock').addEventListener('contextmenu', e => { if (e.target.closest('.orbbtn')) e.preventDefault(); });
 
@@ -1010,6 +1066,10 @@ export function initVoice(n) {
   el.owrap.addEventListener('pointercancel', dragEnd);
 
   tts.onSpeaking(on => document.getElementById('app').classList.toggle('speaking', on));
+  const suspend = () => { cancelRec(); dismissCard({ keepPending: false }); tts.stop(); if (v.open) closeVoice(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') suspend(); });
+  addEventListener('pagehide', suspend);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && v.open) { e.preventDefault(); closeVoice(); } });
   store.subscribe(reason => { if (reason === 'settings' && v.open) paintStatic(); });
 }
 

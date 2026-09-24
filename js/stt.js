@@ -17,7 +17,8 @@ export class SttError extends Error {
   constructor(code, status = 0) { super(code); this.code = code; this.status = status; }
 }
 
-async function once(blob, { key, model, language, prompt }) {
+async function once(blob, { key, model, language, prompt, signal }) {
+  if (signal?.aborted) throw new SttError('aborted');
   const fd = new FormData();
   const ext = /mp4/.test(blob.type) ? 'm4a' : /ogg/.test(blob.type) ? 'ogg' : /wav/.test(blob.type) ? 'wav' : 'webm';
   fd.append('file', blob, `speech.${ext}`);
@@ -27,23 +28,29 @@ async function once(blob, { key, model, language, prompt }) {
   if (language === 'da' || language === 'en') fd.append('language', language);
   if (prompt) fd.append('prompt', prompt);
   const ctl = new AbortController();
+  const abort = () => ctl.abort();
+  signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => ctl.abort(), TIMEOUT);
   let res;
   try {
     res = await fetch(GROQ_URL, { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: fd, signal: ctl.signal });
+    if (res.status === 401 || res.status === 403) throw new SttError('badkey', res.status);
+    if (res.status === 429) throw new SttError('busy', res.status);
+    if (!res.ok) throw new SttError('failed', res.status);
+    const data = await res.json();
+    if (signal?.aborted) throw new SttError('aborted');
+    if (!data || typeof data.text !== 'string') throw new SttError('failed', res.status);
+    return data.text.trim();
   } catch (e) {
+    if (signal?.aborted) throw new SttError('aborted');
+    if (e instanceof SttError) throw e;
     throw new SttError(e?.name === 'AbortError' ? 'timeout' : navigator.onLine === false ? 'offline' : 'network');
-  } finally { clearTimeout(timer); }
-  if (res.status === 401 || res.status === 403) throw new SttError('badkey', res.status);
-  if (res.status === 429) throw new SttError('busy', res.status);
-  if (!res.ok) throw new SttError('failed', res.status);
-  const data = await res.json().catch(() => null);
-  if (!data || typeof data.text !== 'string') throw new SttError('failed', res.status);
-  return data.text.trim();
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
 
 // Transcribe with one retry on timeouts, network blips and 5xx.
 export async function transcribe(blob, opts) {
+  if (opts.signal?.aborted) throw new SttError('aborted');
   if (!opts.key) throw new SttError('nokey');
   if (navigator.onLine === false) throw new SttError('offline');
   try {

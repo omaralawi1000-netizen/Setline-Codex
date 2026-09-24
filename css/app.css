@@ -1734,3 +1734,21 @@ html[data-motion=off] #s-food *{animation:none!important}
 .wkcard strong{font-size:15.5px;font-weight:800}
 .wkcard small{font-size:13px;color:var(--muted);font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .wkcard > svg{width:18px;height:18px;color:var(--dim);flex:none}
+
+/* Refined gym controls: readable values above generous thumb targets. */
+.exhead h1{font-weight:var(--weight-display)}
+.hero .num{font-weight:var(--weight-value);letter-spacing:-.025em}
+.iconbtn{width:var(--hit-min);height:var(--hit-min)}
+.seg button{min-height:var(--hit-min);height:auto}
+.hero .row3{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+.hero .row3 .num{grid-column:1 / -1;grid-row:1;width:100%;min-width:0;text-align:center;font-size:clamp(36px,11vw,46px)}
+.hero .row3 .step{grid-row:2;width:100%;height:var(--hit-min);transition:transform var(--motion-press) var(--spring-soft),background var(--motion-press)}
+.hero .step:active,.btn2:active,.log:active{transform:scale(.97)}
+.swatches{grid-template-columns:repeat(3,1fr)}
+.swatch[data-accent=pearl] i{background:radial-gradient(circle at 35% 30%,#fff,#A49BBF 55%,#37334C)}
+.save-status{position:fixed;z-index:210;bottom:calc(var(--dock-bottom) + var(--dock-h) + 84px);left:50%;transform:translateX(-50%);width:calc(100% - 40px);max-width:440px;padding:16px 20px;border:1px solid rgba(255,138,154,.5);border-radius:20px;color:var(--ink);background:#302129;font-size:14px;line-height:1.5;text-align:left;box-shadow:0 16px 48px #0008}
+.save-status[hidden]{display:none}
+.save-status:disabled{opacity:.75}
+.owrap:focus-visible{outline:2px solid var(--accent);outline-offset:8px;border-radius:50%}
+@media(prefers-reduced-motion:reduce){.hero .row3 .step{transition:none}}
+html[data-motion=off] .hero .row3 .step{transition:none}

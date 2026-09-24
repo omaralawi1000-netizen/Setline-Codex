@@ -86,6 +86,7 @@ export function markExhausted(modelId, now = Date.now(), st = globalThis.localSt
 export const isExhausted = (modelId, now = Date.now(), st = globalThis.localStorage) => (readEx(st)[modelId] || 0) > now;
 
 async function post(path, key, body, { timeout = 0, signal } = {}) {
+  if (signal?.aborted) throw new AiError('aborted');
   if (navigator.onLine === false) throw new AiError('offline');
   const ctl = new AbortController();
   const timer = timeout ? setTimeout(() => ctl.abort(), timeout) : 0;

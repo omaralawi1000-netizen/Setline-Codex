@@ -10,7 +10,7 @@ import { buildContext, chatContents, systemPrompt, formatAnswer, speakable, isPl
 import { getKey } from '../keys.js';
 import { coachModels, ttsModelId, ttsAlt } from '../settings.js';
 import * as tts from '../tts.js';
-import { isRecording } from '../voice.js';
+import { isRecording, isOpening } from '../voice.js';
 import { haptic } from '../haptics.js';
 import { $, esc } from './dom.js';
 import { I } from './icons.js';
@@ -147,7 +147,7 @@ export async function ask(question, { root = $('#s-coach') } = {}) {
     store.updateChat(reply.id, { text: said, streaming: false, ...(facts.length ? { remembered: facts } : {}) }, { persist: true });
     haptic('tap');
     if (said && state.settings.spoken !== 'off') {
-      tts.speak(speakable(said), { key, model: ttsModelId(state.settings), alt: ttsAlt(state.settings), voice: state.settings.voice, lang, canSpeak: () => !isRecording() });
+      tts.speak(speakable(said), { key, model: ttsModelId(state.settings), alt: ttsAlt(state.settings), voice: state.settings.voice, lang, canSpeak: () => !isRecording() && !isOpening() && document.visibilityState !== 'hidden' });
     }
   } catch (e) {
     const code = e instanceof AiError ? e.code : 'failed';
@@ -175,7 +175,7 @@ async function buildPlan(question, reply, { key, lang, ctl, root }) {
     else {
       store.updateChat(reply.id, { streaming: false, text: plan.summary || plan.name, plan }, { persist: true });
       haptic('success');
-      if (plan.summary && state.settings.spoken !== 'off') tts.speak(speakable(plan.summary), { key, model: ttsModelId(state.settings), alt: ttsAlt(state.settings), voice: state.settings.voice, lang, canSpeak: () => !isRecording() });
+      if (plan.summary && state.settings.spoken !== 'off') tts.speak(speakable(plan.summary), { key, model: ttsModelId(state.settings), alt: ttsAlt(state.settings), voice: state.settings.voice, lang, canSpeak: () => !isRecording() && !isOpening() && document.visibilityState !== 'hidden' });
     }
   } catch (e) {
     const code = e instanceof AiError ? e.code : 'failed';

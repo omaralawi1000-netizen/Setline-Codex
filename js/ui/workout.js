@@ -422,6 +422,7 @@ function doLog(kg, reps) {
     haptic('error');
     return toast({ title: esc(t('toast.limit')), error: true });
   }
+  if (!set) return;
   ui.buzzed = 0;
   ui.flash = true;
   haptic('success');
@@ -578,11 +579,18 @@ function finishSheet() {
     el.insertAdjacentHTML('beforeend', `<h2>${t('discard.title')}</h2><p class="lead">${t('discard.body')}</p>
       <div class="acts"><button class="btn2 solid danger" data-k="yes">${I.trash}<span>${t('discard.confirm')}</span></button><button class="btn2 solid" data-k="no">${t('finish.keepGoing')}</button></div>`);
     el.querySelector('[data-k=yes]').onclick = async () => {
-      await closeTop();
-      await discard();
-      haptic('tap');
-      toast({ title: esc(t('toast.discarded')) });
-      nav.go('today');
+      const button = el.querySelector('[data-k=yes]');
+      button.disabled = true;
+      try {
+        await discard();
+        await closeTop();
+        haptic('tap');
+        toast({ title: esc(t('toast.discarded')) });
+        nav.go('today');
+      } catch {
+        button.disabled = false;
+        toast({ title: esc(t('toast.storageError')), error: true });
+      }
     };
     el.querySelector('[data-k=no]').onclick = () => closeTop();
   });
@@ -604,14 +612,15 @@ function finishSheet() {
       else if (k === 'discard') discardSheet(api);
       else if (k === 'finish') {
         e.target.closest('button').disabled = true;
-        await closeTop();
         try {
           const done = await finish();
+          await closeTop();
           haptic('success');
           toast({ title: esc(t('toast.saved')), sub: done?.prs?.length ? t('history.prs', { n: done.prs.length }) : '' });
           if (done) nav.showDetail(done.id, { fromFinish: true });
           else nav.go('today');
         } catch (err) {
+          el.querySelector('[data-k=finish]').disabled = false;
           console.error('finish failed', err?.name);
           toast({ title: esc(t('toast.storageError')), error: true });
         }

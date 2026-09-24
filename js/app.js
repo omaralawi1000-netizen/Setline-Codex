@@ -334,7 +334,18 @@ function maybeAskAlerts() {
   }, 4500);
 }
 
+function paintSaveStatus() {
+  const button = $('#save-status');
+  if (!button) return;
+  button.hidden = state.saveState !== 'error' && !(state.saveState === 'saving' && !button.hidden);
+  button.disabled = state.saveState === 'saving';
+  button.textContent = state.t(state.saveState === 'saving' ? 'save.retrying' : 'save.unsaved');
+}
+$('#save-status').onclick = async () => { try { await store.retrySave(); } catch { /* the banner keeps retry available */ } };
+
 store.subscribe(reason => {
+  if (reason === 'persistence') { paintSaveStatus(); return; }
+  if (reason === 'settings') paintSaveStatus();
   keepAwake(!!state.active || !!state.activeCardio);
   if (reason === 'finish' || (reason === 'cardio' && !state.activeCardio)) setTimeout(autoBackup, 1500);
   syncGps();
@@ -410,7 +421,10 @@ function initSW() {
       el.innerHTML = `<i></i>${esc(state.t('toast.update'))}`;
       el.tabIndex = 0;
       el.classList.add('show');
-      el.onclick = async () => { asked = true; await store.flush(); reg.waiting?.postMessage('skipWaiting'); };
+      el.onclick = async () => {
+        try { await store.flush(); asked = true; reg.waiting?.postMessage('skipWaiting'); }
+        catch { paintSaveStatus(); }
+      };
     };
     offer();
     reg.addEventListener('updatefound', () => {

@@ -44,6 +44,16 @@ test('goal dates from speech', () => {
   assert.equal(G.parseGoalDate('someday', now), null);
 });
 
+test('estimated strength cannot mark an unperformed target as reached', () => {
+  const h = [session(now, 80, 8)];
+  const goal = G.makeGoal({ exerciseId: 'bench-press', kg: 100, reps: 1, deadline: now + WEEK }, h, now);
+  assert.notEqual(G.goalStatus(goal, h, now).state, 'done');
+  assert.equal(G.goalStatus(goal, [...h, session(now + 1, 100, 1)], now).state, 'done');
+  const warmup = session(now + 1, 100, 1);
+  warmup.exercises[0].sets[0].type = 'warmup';
+  assert.notEqual(G.goalStatus(goal, [...h, warmup], now).state, 'done');
+});
+
 test('goals are sanitized', () => {
   const ok = G.makeGoal({ exerciseId: 'bench-press', kg: 100, reps: 1, deadline: now + WEEK }, hist, now, 'g1');
   assert.deepEqual(G.sanitizeGoals([ok, { id: 'x' }, null]).map(g => g.id), ['g1']);

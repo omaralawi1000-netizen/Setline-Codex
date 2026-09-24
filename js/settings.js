@@ -58,7 +58,7 @@ export const DEFAULTS = Object.freeze({
   todayHide: ['balance', 'routines'] // Today sections tucked away (Customize)
 });
 
-export const ACCENTS = ['violet', 'ocean', 'jade', 'ember', 'rose'];
+export const ACCENTS = ['pearl', 'violet', 'ocean', 'jade', 'ember', 'rose'];
 export const FOOD_PARTS = ['calories', 'carbs', 'fat', 'water', 'favourites', 'quickProtein', 'week'];
 export const FOOD_ORDER = ['favourites', 'quickProtein', 'water', 'meals', 'week'];
 export const TODAY_ORDER = ['checkin', 'upnext', 'goals', 'cardio', 'week', 'balance', 'body', 'review', 'routines'];

@@ -1,11 +1,24 @@
 # Setline plan
 
+## Current phase: reliability and core interaction refinement (1.20.0)
+
+Status: implemented and locally verified; release checkpoint. Existing Claude features and the plain JavaScript stack are preserved. Continue later refinements only after this checkpoint.
+
+- Voice: invalidate cancelled microphone permission requests, stop interrupted streams, abort cancelled transcription and command requests, and reject stale asynchronous results. A changed workout requires explicit confirmation of a delayed AI suggestion. Cancel no longer commits a pending set. Spoken confirmations follow successful storage; replies do not play while the microphone is opening or the page is hidden.
+- Persistence: serialize active-workout saves, retain failed changes in memory, show a persistent retry control, block update reload while saving fails, keep failed finish/discard recoverable, and prevent duplicate finish transactions. No database migration or historical-weight conversion was introduced (schema remains v4).
+- Presentation: optional neutral Pearl theme, lighter critical typography, separate large weight/reps controls with 44 px targets, responsive press motion, keyboard-operable orb, and sheet focus containment/restoration. Dock stays expanded during workouts and voice interaction. Existing motion-off support is retained.
+- Correctness: weekly volume displays in the selected unit; strength goals require an actual qualifying set rather than an estimated maximum. Removed guessed speech-duration truncation while retaining WAV metadata parsing and conservative noise cleanup.
+- Validation: 310 Node tests passed. Real Chrome browser checks passed for voice cancellation, stale AI context, storage failure/retry/reload, failed discard, duplicate finish, pound volume, sheet keyboard focus, keyboard orb and 360/412/430 px layouts. No browser page errors in those runs. A separate real service-worker check passed: cached 1.20.0 reopened offline and restored its saved workout. Final syntax/version/microphone/TTS subset: 25 passed. Provider responses were mocked for deterministic regression testing; these are not microphone or live-provider benchmarks.
+- Platform limits: real Android microphone, Bluetooth, speech quality, mobile-data latency, and suspended-app rest alerts require device testing. Browser storage failure cannot be made durable until storage accepts a retry; the warning explicitly keeps the user in the app. Background notifications remain best-effort. Cardio persistence retains its existing implementation; this release hardens strength-workout persistence.
+- Deferred: larger Settings reorganization, pre-save AI plan editing, additional wrestling/personalization controls and broader analytics. No new backend, provider migration or native rewrite in this phase.
+- Device checkpoint: update to 1.20.0; choose Pearl in Customize; log, cancel, correct and undo in EN/DA; background while listening; close/reopen an active workout; test a Coach reply on mobile data; finish once and verify History.
+
 ## Independent Codex copy (1.19.1)
 
 - Imported Claude's complete 1.19.0 release and history from commit `372f5e564cd4b356b07a92f78e99c720b4325ce6` into the separate `Setline-Codex` repository. The original `Setline` repository remains available independently.
 - This copy uses its own IndexedDB database, browser settings and API-key names, quota and notification flags, service-worker caches, Google Drive backup filenames, and installed-app name. A fresh install therefore starts with empty local data and needs its own voice keys; backup import can transfer user data intentionally, but keys are never in backups.
 - Corrected the Windows module-syntax test path. Runtime microphone, provider speed, background notifications and installation still require a real Android phone check.
-- GitHub Pages must be enabled for this repository if its URL is not live yet. The original app's service worker may clear this app's offline cache when it activates because the original deletes every other origin cache; this copy cannot change that original behavior.
+- GitHub Pages is enabled and the 1.19.1 site was verified before this refinement. The original app's service worker may clear this app's offline cache when it activates because the original deletes every other origin cache; this copy cannot change that original behavior.
 - Further product refinements should build on this complete Claude release; the import does not itself verify new features on Omar's device.
 
 Source: SPEC.md section 7. Work one phase at a time; stop after each and wait for the go-ahead.

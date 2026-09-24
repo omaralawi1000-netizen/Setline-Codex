@@ -62,16 +62,15 @@ test('a soft final syllable is not chopped', () => {
   assert.ok(ms(clean) >= 1040, `kept the soft ending: ${ms(clean)} ms`);
 });
 
-test('a ghost voice after the reply is cut, using how long the text should take', () => {
-  // "Bench press, set 3." ≈ 1.2 s of speech, then a pause and 1.4 s of garbled voice-like audio
+test('a slow reply is not cut using a guess based on character count', () => {
   const text = 'Bench press, set 3.';
   const clean = cleanSpeech(cat(voice(1200), silence(300), voice(1400, 0.25), silence(200)), R, text);
-  assert.ok(ms(clean) < 1500, `cut after the real speech, got ${ms(clean)} ms`);
+  assert.ok(ms(clean) >= 2900, `kept the entire spoken reply: ${ms(clean)} ms`);
 });
 
-test('a quiet ghost after a pause is cut even without the text', () => {
+test('a quiet final phrase after a pause is preserved', () => {
   const clean = cleanSpeech(cat(voice(1500), silence(260), voice(900, 0.05), silence(100)), R);
-  assert.ok(ms(clean) < 1800, `got ${ms(clean)} ms`);
+  assert.ok(ms(clean) >= 2660, `kept the quiet phrase: ${ms(clean)} ms`);
 });
 
 test('a long real reply with pauses is left whole', () => {

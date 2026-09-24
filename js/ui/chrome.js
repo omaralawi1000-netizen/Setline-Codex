@@ -12,6 +12,7 @@ export function initChrome() {
   const metas = () => document.querySelectorAll('meta[name=theme-color]');
   let color = '';
   const paint = () => {
+    if (app.classList.contains('compact') && (app.classList.contains('voice') || app.classList.contains('voice-mini'))) app.classList.remove('compact');
     const dim = app.classList.contains('voice') || !!app.querySelector(':scope > .scrim.show');
     const next = dim ? DIM : edge();
     if (next !== color) { color = next; for (const m of metas()) m.setAttribute('content', next); }
@@ -29,7 +30,10 @@ export function initChrome() {
       app.classList.toggle('under-top', s.scrollTop > 6);
       app.classList.toggle('under-bottom', s.scrollHeight - s.clientHeight - s.scrollTop > 6);
       const y = s.scrollTop, dy = y - lastY;
-      if (Math.abs(dy) > 12) { app.classList.toggle('compact', dy > 0 && y > 80); lastY = y; }
+      const fixed = s.id === 's-workout' || app.classList.contains('voice') || app.classList.contains('voice-mini') || document.activeElement?.matches('input,textarea,select');
+      if (fixed) app.classList.remove('compact');
+      else if (Math.abs(dy) > 12) app.classList.toggle('compact', dy > 0 && y > 80);
+      if (Math.abs(dy) > 12) lastY = y;
     });
   };
   app.addEventListener('scroll', onScroll, { capture: true, passive: true });

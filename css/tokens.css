@@ -16,9 +16,16 @@
   --safe-bottom:env(safe-area-inset-bottom);
   --dock-bottom:calc(22px + var(--safe-bottom));
   --dock-h:72px;
+  --hit-min:44px;
+  --motion-press:180ms;
+  --spring-soft:cubic-bezier(.22,1.12,.32,1);
+  --weight-display:700;
+  --weight-value:600;
 }
 
 /* accent themes (Settings or Today → Customize). Violet is the default above. */
+html[data-accent=pearl]{--accent:#ECEAF2;--a-rgb:236,234,242;--violet:#A49BBF;--v-rgb:164,155,191;--blue:#AEC1DC;--b-rgb:174,193,220;--accent-ink:#17181F;
+  --accent-soft:#BBB7C9;--accent-hi:#FFFFFF;--orb1:#D8D3E9;--orb2:#817C9E;--orb3:#37334C;--amb1:#625B79;--amb2:#43566D}
 html[data-accent=ocean]{--accent:#A8E1FF;--a-rgb:168,225,255;--violet:#3B9EEA;--v-rgb:59,158,234;--blue:#46D2C8;--b-rgb:70,210,200;--accent-ink:#0E2233;
   --accent-soft:#8CC4E0;--accent-hi:#DDF3FF;--edge:#000000;--orb1:#3C8FEA;--orb2:#1F55B9;--orb3:#0B1F5C;--amb1:#2F7FD0;--amb2:#1FA6A0}
 html[data-accent=jade]{--accent:#B5F2D0;--a-rgb:181,242,208;--violet:#3FCB8A;--v-rgb:63,203,138;--blue:#4FB8FF;--b-rgb:79,184,255;--accent-ink:#0E2A1C;
