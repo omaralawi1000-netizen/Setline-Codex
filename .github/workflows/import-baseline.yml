@@ -1,0 +1,26 @@
+name: Preserve Claude baseline
+on:
+  push:
+    paths: ['.github/workflows/import-baseline.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import:
+    if: github.repository == 'omaralawi1000-netizen/Setline-Codex'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Import exact saved source and history
+        run: |
+          set -euo pipefail
+          baseline=92b9b60e88c0af1cd8267b10f5bd665b52bd00a7
+          git fetch https://github.com/omaralawi1000-netizen/Setline.git "$baseline"
+          test "$(git rev-parse FETCH_HEAD)" = "$baseline"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --allow-unrelated-histories --no-edit "$baseline"
+          git tag claude-baseline-1.11.0 "$baseline"
+          git push origin HEAD:main refs/tags/claude-baseline-1.11.0
