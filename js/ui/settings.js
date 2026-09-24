@@ -7,6 +7,8 @@ import { ageOf } from '../profile.js';
 import { dateKey } from '../body.js';
 import { VERSION } from '../version.js';
 import { LIMITS } from '../workout.js';
+import { STEP_GROUPS, STEP_CHOICES } from '../progression.js';
+import { addMemories } from '../coach.js';
 import { haptic } from '../haptics.js';
 import { I } from './icons.js';
 import { toast } from './toast.js';
@@ -55,6 +57,33 @@ function speechStatus() {
   return t('speech.device', { why: lastSpeech.error === 'nokey' ? t('speech.why.nokey') : t('speech.why.error', { code: lastSpeech.error }) });
 }
 
+// Weight steps: how far − and + move for each kind of kit (and how big the suggested jumps are)
+const STEP_DEFAULT = { barbell: 2.5, dumbbell: 2, machine: 2.5 };
+function stepsSummary() {
+  const { t } = state;
+  const s = state.settings.kgSteps || {};
+  return STEP_GROUPS.map(g => `${t('steps.' + g)} ${num(s[g] || STEP_DEFAULT[g], state.lang, 2)} kg`).join(' · ');
+}
+function stepsSheet() {
+  const { t } = state;
+  openSheet(el => {
+    const paint = () => {
+      const s = state.settings.kgSteps || {};
+      el.innerHTML = `<div class="sbody"><h2>${t('steps.title')}</h2><p class="lead">${t('steps.lead')}</p>
+        ${STEP_GROUPS.map(g => `<div class="field"><label>${t('steps.' + g)}<small> · ${t('steps.' + g + 'Sub')}</small></label><div class="opts">${STEP_CHOICES.map(v => `<button class="chip" data-step="${g}" data-v="${v}" aria-pressed="${(s[g] || STEP_DEFAULT[g]) === v}">${num(v, state.lang, 2)} kg</button>`).join('')}</div></div>`).join('')}
+        ${state.settings.unit === 'lb' ? `<p class="snote">${t('steps.lbNote')}</p>` : ''}</div>`;
+    };
+    paint();
+    el.addEventListener('click', e => {
+      const b = e.target.closest('[data-step]');
+      if (!b) return;
+      haptic('tap');
+      setSettings({ kgSteps: { ...(state.settings.kgSteps || {}), [b.dataset.step]: Number(b.dataset.v) } });
+      paint();
+    });
+  }, { label: t('steps.title') });
+}
+
 function profileRow() {
   const { t } = state;
   const p = state.settings.profile;
@@ -62,6 +91,36 @@ function profileRow() {
   const bits = p ? [age && `${age} ${t('ob.years')}`, p.goal && t(`ob.goal.${p.goal}`), p.days && t('ob.daysShort', { n: p.days })].filter(Boolean).join(' · ') : t('profile.empty');
   return `<button class="profrow glass" data-act="edit-profile"><span class="pav">${esc((p?.name || '?').slice(0, 1).toUpperCase())}</span>
     <span class="l"><strong>${esc(p?.name || t('profile.title'))}</strong><span>${esc(bits)}</span></span><span class="go">${I.fwd}</span></button>`;
+}
+
+// What the Coach remembers about you (it adds to this itself when you tell it things), and the weekly check-in.
+function memorySheet() {
+  const { t } = state;
+  openSheet(el => {
+    const paint = () => {
+      const list = state.settings.memories || [];
+      el.innerHTML = `<div class="sbody"><h2>${t('memory.title')}</h2><p class="lead">${t('memory.lead')}</p>
+        ${list.length ? `<ul class="memlist">${[...list].reverse().map(m => `<li><span>${esc(m.text)}</span><button class="iconbtn sm" data-mem-del="${esc(m.id)}" aria-label="${esc(t('common.delete'))}">${I.close}</button></li>`).join('')}</ul>` : `<p class="snote">${t('memory.none')}</p>`}
+        <form class="mdesc solid" data-mem-add><input name="m" maxlength="140" autocomplete="off" placeholder="${esc(t('memory.addPh'))}"><button class="send" aria-label="${esc(t('voice.send'))}">${I.plus}</button></form>
+        <div class="slist solid" style="margin-top:14px"><div class="srow"><span class="l"><strong>${t('memory.weekly')}</strong><small>${t('memory.weeklySub')}</small></span>
+          <button class="toggle" role="switch" aria-checked="${state.settings.weeklyCheckin}" aria-label="${t('memory.weekly')}" data-mem-weekly></button></div></div></div>`;
+    };
+    paint();
+    el.addEventListener('click', e => {
+      const d = e.target.closest('[data-mem-del]');
+      if (d) { haptic('tap'); setSettings({ memories: (state.settings.memories || []).filter(m => m.id !== d.dataset.memDel) }); return paint(); }
+      if (e.target.closest('[data-mem-weekly]')) { haptic('tap'); setSettings({ weeklyCheckin: !state.settings.weeklyCheckin }); return paint(); }
+    });
+    el.addEventListener('submit', e => {
+      e.preventDefault();
+      const v = String(e.target.m?.value || '').trim();
+      if (!v) return;
+      haptic('success');
+      setSettings({ memories: addMemories(state.settings.memories, [v]) });
+      paint();
+      el.querySelector('[data-mem-add] input')?.focus();
+    });
+  }, { label: t('memory.title') });
 }
 
 export function renderSettings(root) {
@@ -72,6 +131,7 @@ export function renderSettings(root) {
     </header>
     <h1 class="h1">${t('settings.title')}</h1>
     ${profileRow()}
+    <div class="slist solid memlink"><button class="srow" data-act="memory"><span class="l"><strong>${t('memory.title')}</strong><small>${esc(t('memory.sub', { n: (s.memories || []).length }))}</small></span>${I.fwd}</button></div>
 
     <div class="sgroup"><h2>${t('settings.general')}</h2><div class="slist solid">
       <div class="srow"><span class="l"><strong>${t('settings.language')}</strong></span>${seg('lang', ['auto', 'da', 'en'], [t('lang.auto'), t('lang.da'), t('lang.en')])}</div>
@@ -97,6 +157,7 @@ export function renderSettings(root) {
     <div class="sgroup"><h2>${t('settings.workout')}</h2><div class="slist solid">
       <div class="srow"><span class="l"><strong>${t('settings.rest')}</strong><small>${t('settings.restSub')}</small></span>
         <div class="stepper"><button class="step" data-act="rest-default" data-d="-15" aria-label="−15 s" ${s.restSec <= LIMITS.restMin ? 'disabled' : ''}>−</button><b>${t('seconds', { n: s.restSec })}</b><button class="step" data-act="rest-default" data-d="15" aria-label="+15 s" ${s.restSec >= LIMITS.restMax ? 'disabled' : ''}>+</button></div></div>
+      <button class="srow" data-act="kg-steps"><span class="l"><strong>${t('steps.title')}</strong><small>${esc(stepsSummary())}</small></span>${I.fwd}</button>
       <div class="srow"><span class="l"><strong>${t('settings.autoAdvance')}</strong><small>${t('settings.autoAdvanceSub')}</small></span>
         <button class="toggle" role="switch" aria-checked="${s.autoAdvance}" aria-label="${t('settings.autoAdvance')}" data-act="toggle" data-key="autoAdvance"></button></div>
       <div class="srow"><span class="l"><strong>${t('alerts.title')}</strong><small>${t('alerts.sub')}</small></span>
@@ -119,6 +180,8 @@ export function renderSettings(root) {
     <div class="sgroup"><h2>${t('settings.feel')}</h2><div class="slist solid">
       <div class="srow"><span class="l"><strong>${t('settings.haptics')}</strong><small>${t('settings.hapticsSub')}</small></span>
         <button class="toggle" role="switch" aria-checked="${s.haptics}" aria-label="${t('settings.haptics')}" data-act="toggle-haptics"></button></div>
+      <div class="srow"><span class="l"><strong>${t('settings.fullscreen')}</strong><small>${t('settings.fullscreenSub')}</small></span>
+        <button class="toggle" role="switch" aria-checked="${s.fullscreen}" aria-label="${t('settings.fullscreen')}" data-act="toggle" data-key="fullscreen"></button></div>
       <div class="srow"><span class="l"><strong>${t('settings.motion')}</strong></span>${seg('motion', ['auto', 'on', 'off'], [t('settings.motion.auto'), t('settings.motion.on'), t('settings.motion.off')])}</div>
     </div></div>
 
@@ -192,6 +255,8 @@ export function initSettings(actions, root) {
       speak(state.t('settings.previewText'), { key: getKey('google'), model: ttsModelId(state.settings), alt: ttsAlt(state.settings), voice: state.settings.voice, lang: state.lang, canSpeak: () => true });
     },
     set: el => { setSettings({ [el.dataset.key]: el.dataset.v }); haptic('tap'); },
+    'kg-steps': () => { haptic('tap'); stepsSheet(); },
+    memory: () => { haptic('tap'); memorySheet(); },
     'rest-alerts': async () => {
       const { t } = state;
       if (state.settings.restAlerts) { setSettings({ restAlerts: false }); return; }

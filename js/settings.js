@@ -2,6 +2,8 @@
 import { LIMITS } from './workout.js';
 import { sanitizeProfile } from './profile.js';
 import { sanitizeGoals } from './goals.js';
+import { sanitizeTargets, sanitizeQuick } from './nutrition.js';
+import { sanitizeSteps } from './progression.js';
 
 export const SETTINGS_KEY = 'setline.settings';
 
@@ -42,10 +44,27 @@ export const DEFAULTS = Object.freeze({
   profileAsked: 0,     // when the onboarding was shown (so it's asked once)
   goals: [],           // lift goals (goals.js)
   accent: 'violet',    // colour theme
+  fullscreen: false,   // hide the phone's status bar (edge to edge)
+  foodHide: [],        // Food tab parts turned off (Customize)
+  foodOrder: [],       // Food tab sections, in your order
+  todayOrder: [],      // Today cards, in your order
+  quickAdd: null,      // {kind: 'protein'|'kcal', values: [a, b, c]}
+  kgSteps: null,       // {barbell, dumbbell, machine}: the − / + step in kg
+  memories: [],        // what you told the Coach that it keeps in mind [{id, text, at}]
+  weeklyCheckin: true, // the Coach's Monday look back and plan
+  weeklyFor: '',       // the week (its Monday) the last check-in was written for
+  weeklySeen: '',      // …and the one you've opened
+  foodTargets: null,   // {kcal, protein, carbs, fat, water} set by hand; null = worked out from the profile
   todayHide: ['balance', 'routines'] // Today sections tucked away (Customize)
 });
 
 export const ACCENTS = ['violet', 'ocean', 'jade', 'ember', 'rose'];
+export const FOOD_PARTS = ['calories', 'carbs', 'fat', 'water', 'favourites', 'quickProtein', 'week'];
+export const FOOD_ORDER = ['favourites', 'quickProtein', 'water', 'meals', 'week'];
+export const TODAY_ORDER = ['checkin', 'upnext', 'goals', 'cardio', 'week', 'balance', 'body', 'review', 'routines'];
+const order = (list, all) => { const seen = [...new Set((Array.isArray(list) ? list : []).filter(x => all.includes(x)))]; return [...seen, ...all.filter(x => !seen.includes(x))]; };
+export const foodOrderOf = s => order(s.foodOrder, FOOD_ORDER);
+export const todayOrderOf = s => order(s.todayOrder, TODAY_ORDER);
 export const TODAY_PARTS = ['checkin', 'goals', 'cardio', 'week', 'balance', 'body', 'review', 'routines'];
 
 // Gemini prebuilt voices and how they sound.
@@ -73,6 +92,16 @@ export function sanitize(input) {
   if (Array.isArray(input.goals)) s.goals = sanitizeGoals(input.goals);
   if (Number.isFinite(input.profileAsked)) s.profileAsked = input.profileAsked;
   if (ACCENTS.includes(input.accent)) s.accent = input.accent;
+  if (typeof input.fullscreen === 'boolean') s.fullscreen = input.fullscreen;
+  s.foodTargets = sanitizeTargets(input.foodTargets);
+  if (Array.isArray(input.foodOrder)) s.foodOrder = order(input.foodOrder, FOOD_ORDER);
+  if (Array.isArray(input.todayOrder)) s.todayOrder = order(input.todayOrder, TODAY_ORDER);
+  if (input.quickAdd) s.quickAdd = sanitizeQuick(input.quickAdd);
+  s.kgSteps = sanitizeSteps(input.kgSteps);
+  s.memories = sanitizeMemories(input.memories);
+  if (typeof input.weeklyCheckin === 'boolean') s.weeklyCheckin = input.weeklyCheckin;
+  for (const k of ['weeklyFor', 'weeklySeen']) if (typeof input[k] === 'string' && /^(\d{4}-\d{2}-\d{2})?$/.test(input[k])) s[k] = input[k];
+  if (Array.isArray(input.foodHide)) s.foodHide = [...new Set(input.foodHide.filter(x => FOOD_PARTS.includes(x)))];
   if (Array.isArray(input.todayHide)) s.todayHide = [...new Set(input.todayHide.filter(x => TODAY_PARTS.includes(x)))];
   if (Array.isArray(input.favMeals)) s.favMeals = input.favMeals.filter(x => typeof x === 'string' && x.length <= 60).slice(0, 30);
   for (const k of ['deloadUntil', 'deloadSnoozed']) if (Number.isFinite(input[k]) && input[k] >= 0) s[k] = input[k];
@@ -91,6 +120,12 @@ export function sanitize(input) {
   if (['fast', 'accurate'].includes(input.stt)) s.stt = input.stt;
   for (const k of ['ttsModel', 'ttsLite', 'ttsOverride', 'cmdModel', 'coachModel', 'cmdOverride', 'coachOverride', 'cmdAlt', 'coachAlt']) if (typeof input[k] === 'string' && (input[k] === '' || MODEL_ID.test(input[k].trim()))) s[k] = input[k].trim();
   return s;
+}
+
+export function sanitizeMemories(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter(m => m && typeof m.id === 'string' && typeof m.text === 'string' && m.text.trim() && Number.isFinite(m.at))
+    .map(m => ({ id: m.id.slice(0, 60), text: m.text.trim().slice(0, 140), at: m.at })).slice(-40);
 }
 
 export const cmdModelId = s => s.cmdOverride || s.cmdModel || 'gemini-flash-lite-latest';

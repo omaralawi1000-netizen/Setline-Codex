@@ -1,5 +1,6 @@
 // Entry point: navigation, dock, clock, service worker updates.
 import * as store from './store.js';
+import { configureSteps } from './progression.js';
 import { state } from './store.js';
 import { elapsedSec, nextSetNumber } from './workout.js';
 import { clock } from './format.js';
@@ -14,7 +15,7 @@ import { renderWorkout, initWorkout, tickWorkout, syncNums, setWorkoutNav } from
 import { renderHistory, renderDetail } from './ui/history.js';
 import { renderSettings, initSettings } from './ui/settings.js';
 import { initVoice, orbHTML, voiceHandlePop, closeVoice, isVoiceOpen, openVoice } from './ui/voice.js';
-import { renderCoach, initCoach, ask as askCoach, ensureModels } from './ui/coach.js';
+import { renderCoach, initCoach, ask as askCoach, ensureModels, weeklyCheckin, markWeeklySeen } from './ui/coach.js';
 import { initCardio, setCardioNav, tickCardio, renderCardioDetail, syncGps, startCardioSession, pickTypeSheet } from './ui/cardio.js';
 import { initBody } from './ui/body.js';
 import { initRoutine, setRoutineNav, renderRoutine, editRoutine, programsSheet, startRoutine } from './ui/routine.js';
@@ -28,6 +29,7 @@ import { autoBackup } from './ui/drive.js';
 import { initHandsFree } from './ui/handsfree.js';
 import { onCheckinClick } from './ui/checkin.js';
 import { renderBody, initBodyScreen } from './ui/bodyscreen.js';
+import { renderFood, initFood, openFoodDay } from './ui/food.js';
 import { openScanner } from './ui/scan.js';
 import { openMealSheet } from './ui/meal.js';
 import { maybeOnboard, setOnboardNav } from './ui/onboard.js';
@@ -36,9 +38,10 @@ import { cardioElapsed, cardioName } from './cardio.js';
 import { weekStart } from './stats.js';
 import { nextRoutine } from './routines.js';
 import { repeatTemplate } from './insights.js';
+import { animateFigures } from './ui/figure.js';
 
-const TABS = ['today', 'workout', 'coach', 'history'];
-const SUB = ['detail', 'settings', 'routine', 'progress', 'exercise', 'body'];
+const TABS = ['today', 'workout', 'food', 'coach'];
+const SUB = ['history', 'detail', 'settings', 'routine', 'progress', 'exercise', 'body'];
 const view = { screen: 'today', detailId: null, detailKind: 'workout', parent: 'history' };
 const actions = {};
 const app = $('#app');
@@ -59,6 +62,7 @@ function renderScreen(name = view.screen) {
   else if (name === 'exercise') renderExercise(root, view.exerciseId);
   else if (name === 'settings') renderSettings(root);
   else if (name === 'body') renderBody(root);
+  else if (name === 'food') renderFood(root);
 }
 
 // Built once; later renders only move the pill and relabel, so the indicator can glide.
@@ -67,7 +71,7 @@ function renderDock() {
   const dock = $('#dock');
   const tab = (name, icon, cls = '') => `<button class="tab${cls}" data-act="go" data-to="${name}">${icon}<span>${t('tab.' + name)}</span></button>`;
   if (!dock.dataset.built || dock.dataset.lang !== state.lang) {
-    dock.innerHTML = '<span class="ind" aria-hidden="true"></span>' + tab('today', I.home) + tab('workout', I.workout) + orbHTML() + tab('coach', I.chat) + tab('history', I.history);
+    dock.innerHTML = '<span class="ind" aria-hidden="true"></span>' + tab('today', I.home) + tab('workout', I.workout) + orbHTML() + tab('food', I.meal) + tab('coach', I.chat);
     dock.dataset.built = '1';
     dock.dataset.lang = state.lang;
   }
@@ -107,8 +111,10 @@ function renderMini() {
 function renderAll() {
   document.documentElement.lang = state.lang;
   document.documentElement.dataset.motion = state.settings.motion;
+  configureSteps(state.settings.kgSteps);
   if (document.documentElement.dataset.accent !== state.settings.accent) { document.documentElement.dataset.accent = state.settings.accent; refreshChrome(); }
   renderScreen();
+  animateFigures($('#s-' + view.screen));
   renderDock();
   renderMini();
   // numbers count up the first time a screen is shown, not on every change
@@ -118,7 +124,7 @@ function renderAll() {
 }
 
 // Direction for the transition: tabs by position, sub screens push in from the right.
-const ORDER = { today: 0, workout: 1, coach: 2, history: 3, detail: 4, settings: 4, routine: 4, progress: 4, body: 4, exercise: 5 };
+const ORDER = { today: 0, workout: 1, food: 2, coach: 3, history: 4, detail: 5, settings: 4, routine: 4, progress: 5, body: 4, exercise: 6 };
 function show(name, { back = false } = {}) {
   const prev = view.screen;
   view.screen = name;
@@ -145,6 +151,7 @@ function show(name, { back = false } = {}) {
   }
   app.classList.toggle('is-sub', SUB.includes(name));
   app.classList.toggle('coaching', name === 'coach');
+  if (name === 'coach') markWeeklySeen();
   requestAnimationFrame(() => app.dispatchEvent(new Event('screenchange')));
   renderAll();
 }
@@ -169,9 +176,9 @@ function pushSub(name, extra = {}) {
 function showDetail(id, { fromFinish = false, kind = 'workout' } = {}) {
   view.detailKind = kind;
   if (fromFinish) {
-    // After finishing, land in History with the detail on top.
-    history.replaceState({ screen: 'history' }, '');
-    view.screen = 'history';
+    // After finishing, the workout's page sits on top of Today (back goes home).
+    history.replaceState({ screen: 'today' }, '');
+    view.screen = 'today';
   }
   pushSub('detail', { detailId: id, detailKind: kind });
   if (fromFinish) setTimeout(celebrate, 380);
@@ -227,6 +234,7 @@ initChrome();
 app.addEventListener('dockopen', () => renderDock());
 initHandsFree();
 initBodyScreen($('#s-body'));
+initFood($('#s-food'));
 initGoals();
 setOnboardNav({ go: name => go(name), ask: q => askCoach(q) });
 initWorkout($('#s-workout'), actions);
@@ -254,11 +262,14 @@ app.addEventListener('click', e => {
   if (ex) { haptic('tap'); pushSub('exercise', { exerciseId: ex.dataset.ex }); return; }
   if (e.target.closest('[data-progress]')) { haptic('tap'); pushSub('progress'); return; }
   if (e.target.closest('[data-bodyscreen]')) { haptic('tap'); pushSub('body'); return; }
+  if (e.target.closest('[data-foodscreen]') && !e.target.closest('[data-body]')) { haptic('tap'); openFoodDay(); go('food'); return; }
+  if (e.target.closest('[data-historyscreen]')) { haptic('tap'); pushSub('history'); return; }
   const pr = e.target.closest('[data-prange]');
   if (pr) { setRange(Number(pr.dataset.prange)); haptic('tap'); renderScreen('progress'); countAll($('#s-progress'), state.lang); return; }
   const f = e.target.closest('[data-hfilter]');
   if (f) { setHistoryFilter(f.dataset.hfilter); haptic('tap'); renderScreen('history'); return; }
   if (e.target.closest('[data-review=ask]')) { go('coach'); askCoach(state.t('review.prompt')); }
+  if (e.target.closest('[data-weekly]')) { haptic('tap'); go('coach'); }
   const ck = e.target.closest('[data-ck]');
   if (ck && !ck.disabled) { onCheckinClick(ck, () => { renderScreen('today'); }); return; }
   const dl = e.target.closest('[data-deload]');
@@ -288,20 +299,39 @@ app.addEventListener('click', e => {
 let restTimer = 0, restFor = 0;
 function scheduleRestAlert() {
   const r = state.active?.rest;
-  if (!state.settings.restAlerts || !r || r.endsAt <= Date.now()) { clearTimeout(restTimer); restFor = 0; return; }
+  const sw = navigator.serviceWorker?.controller;
+  const allowed = state.settings.restAlerts && globalThis.Notification?.permission === 'granted';
+  if (!allowed || !r || r.endsAt <= Date.now()) {
+    if (restFor) sw?.postMessage({ type: 'rest-cancel' });
+    clearTimeout(restTimer); restFor = 0;
+    if (r && r.endsAt > Date.now()) maybeAskAlerts();
+    return;
+  }
   if (restFor === r.endsAt) return;
   clearTimeout(restTimer);
   restFor = r.endsAt;
+  const w = state.active, ex = w?.exercises[w.current];
+  const msg = { type: 'rest', endsAt: r.endsAt, title: state.t('workout.restDone'), body: ex ? `${state.catalog.name(ex.exerciseId, state.lang)} · ${state.t('workout.setNext', { n: nextSetNumber(ex) })}` : '' };
+  // the service worker keeps time even when this page is frozen in the background
+  if (sw && r.endsAt - Date.now() < 270_000) { sw.postMessage(msg); return; }
   restTimer = setTimeout(async () => {
     restFor = 0;
-    if (document.visibilityState === 'visible' || Notification.permission !== 'granted') return;
-    const w = state.active, ex = w?.exercises[w.current];
-    const reg = await navigator.serviceWorker?.ready;
-    reg?.showNotification(state.t('workout.restDone'), {
-      body: ex ? `${state.catalog.name(ex.exerciseId, state.lang)} · ${state.t('workout.setNext', { n: nextSetNumber(ex) })}` : '',
-      tag: 'setline-rest', renotify: true, icon: 'icons/icon-192.png', vibrate: [120, 80, 120]
-    });
+    if (document.visibilityState === 'visible') return;
+    (await navigator.serviceWorker?.ready)?.showNotification(msg.title, { body: msg.body, tag: 'setline-rest', renotify: true, icon: 'icons/icon-192.png', vibrate: [220, 90, 220, 90, 320] });
   }, r.endsAt - Date.now());
+}
+
+// The first rest asks once (after the set's own toast has gone) whether to ping you when it ends.
+function maybeAskAlerts() {
+  if (state.settings.restAlerts || !globalThis.Notification || Notification.permission === 'denied') return;
+  try { if (localStorage.getItem('setline.alertsAsked')) return; localStorage.setItem('setline.alertsAsked', '1'); } catch { return; }
+  setTimeout(() => {
+    if (!state.active?.rest || document.querySelector('#toast.show')) { try { localStorage.removeItem('setline.alertsAsked'); } catch {} return; }
+    toast({ title: esc(state.t('alerts.ask')), sub: state.t('alerts.askSub'), action: state.t('alerts.turnOn'), ms: 9000, onAction: async () => {
+      const p = await Notification.requestPermission();
+      if (p === 'granted') { store.setSettings({ restAlerts: true }); toast({ title: esc(state.t('alerts.on')) }); }
+    } });
+  }, 4500);
 }
 
 store.subscribe(reason => {
@@ -321,15 +351,19 @@ store.subscribe(reason => {
   morph(renderAll);
 });
 
-// Calm re-renders: on the read-only screens, cards that come, go or move glide there (View
-// Transitions) instead of popping. The workout screen updates in place and never waits on this.
-const CALM = ['today', 'history', 'progress', 'body'];
+// Calm re-renders: on Today, when cards come, go or change order, they glide there (View
+// Transitions) instead of popping. Only then: a transition briefly takes over taps, so ordinary
+// updates (a number changing) render straight away.
+const cardKeys = root => [...root.children].map(el => el.style.viewTransitionName).join('|');
 function morph(fn) {
   const s = $('#s-' + view.screen);
-  const calm = CALM.includes(view.screen) && document.startViewTransition && document.visibilityState === 'visible' &&
+  const calm = view.screen === 'today' && document.startViewTransition && document.visibilityState === 'visible' &&
     document.documentElement.dataset.motion !== 'off' && !matchMedia('(prefers-reduced-motion: reduce)').matches &&
     !isVoiceOpen() && !document.querySelector('.sheet') && s && !s.classList.contains('enter');
   if (!calm) return fn();
+  const probe = document.createElement('div');
+  renderToday(probe);
+  if (!s.children.length || cardKeys(probe) === cardKeys(s)) return fn(); // the first paint doesn't glide
   const y = s.scrollTop;
   try { document.startViewTransition(() => { fn(); s.scrollTop = y; }); } catch { fn(); }
 }
@@ -409,6 +443,9 @@ async function boot() {
   shortcut();
   autoBackup();
   if (!new URLSearchParams(location.search).has('go')) maybeOnboard();
+  // the Coach's Monday check-in is written quietly in the background
+  setTimeout(() => weeklyCheckin(), 5000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(() => weeklyCheckin(), 3000); });
 }
 
 // Home-screen shortcuts (long-press the icon): ?go=next | cardio | talk

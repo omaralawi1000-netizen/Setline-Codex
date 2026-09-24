@@ -1,6 +1,7 @@
 // Voice: the Orb, the voice screen, and the intent card.
 // Pipeline: hold → record → Groq → parser → intent card → auto-commit (or confirm) → spoken reply.
 import * as store from '../store.js';
+import { openPicker } from './picker.js';
 import { state } from '../store.js';
 import * as mic from '../voice.js';
 import * as tts from '../tts.js';
@@ -28,8 +29,8 @@ import { ask as askCoach, ensureModels } from './coach.js';
 import { cmdModels } from '../settings.js';
 import { createEndpointer, looksUnfinished } from '../endpoint.js';
 
-const endpoint = createEndpointer();
-const WAIT_MS = 6000; // sounded unfinished: still send after this much quiet
+const endpoint = createEndpointer({ pauseMs: 850 });
+const WAIT_MS = 3000; // sounded unfinished: still send after this much quiet
 
 const HOLD_MS = 280;          // shorter press = tap
 const BARS = 27;
@@ -71,7 +72,7 @@ function parseCtx() {
 const snapshot = () => ({
   nameLang: state.lang, planFor, active: state.active, cardio: state.cardio, activeCardio: state.activeCardio,
   bodyweight: state.bodyweight, nutrition: state.nutrition, daily: state.daily, history: state.history, prs: state.prs, routines: state.routines,
-  undoCount: state.undo.length, settings: state.settings, catalog: state.catalog, now: Date.now()
+  undoCount: state.undo.length, settings: state.settings, catalog: state.catalog, usage: state.usage, now: Date.now()
 });
 
 function speak(text, lang) {
@@ -230,6 +231,14 @@ function flyMini(open) {
 function pushVoiceEntry() {
   const push = () => { if (v.open && !history.state?.voice) history.pushState({ ...(history.state || {}), voice: 1 }, ''); };
   if (v.closing) v.closing.then(push); else push();
+}
+
+// Food screen's "Say it": lift the orb and start listening straight away.
+export function talkNow() {
+  unlockAudio();
+  if (!v.open) openMini();
+  v.toggle = true;
+  startRec();
 }
 
 export function openMini() {
@@ -831,6 +840,10 @@ function onCardClick(e) {
     if (!ch) return;
     haptic('tap');
     dismissCard({ keepPending: false });
+    if (ch.intent.type === 'PickExercise') { // the full list, then the set goes on the one you pick
+      const then = ch.intent.then;
+      return openPicker({ onPick: id => present({ ...then, exerciseId: id, heard: cmd.intent?.heard || '', lang: cmd.lang }) });
+    }
     return present({ ...ch.intent, heard: cmd.intent?.heard || '', lang: cmd.lang });
   }
   if (k === 'more') {

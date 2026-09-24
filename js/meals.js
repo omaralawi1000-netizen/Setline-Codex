@@ -77,11 +77,30 @@ export function addMeal(entries, date, meal, now = Date.now(), id = uid()) {
     id, t: now, name: String(meal.name || '').slice(0, MEAL_LIMITS.name),
     protein: Math.round(clamp(meal.protein, MEAL_LIMITS.protein)), kcal: Math.round(clamp(meal.kcal, MEAL_LIMITS.kcal)),
     carbs: Math.round(clamp(meal.carbs, MEAL_LIMITS.carbs)), fat: Math.round(clamp(meal.fat, MEAL_LIMITS.fat)),
-    source: ['photo', 'barcode'].includes(meal.source) ? meal.source : 'text', ...(validThumb(meal.thumb) ? { thumb: meal.thumb } : {})
+    source: ['photo', 'barcode'].includes(meal.source) ? meal.source : 'text', ...(validThumb(meal.thumb) ? { thumb: meal.thumb } : {}),
+    ...(['breakfast', 'lunch', 'dinner', 'snack'].includes(meal.slot) ? { slot: meal.slot } : {})
   };
   const cur = entries.find(e => e.date === date) || { date, protein: 0 };
   const next = { ...cur, protein: Math.min(1000, (cur.protein || 0) + m.protein), kcal: Math.min(20000, (cur.kcal || 0) + m.kcal), meals: [...(cur.meals || []), m] };
   return { entries: [...entries.filter(e => e.date !== date), next], meal: m };
+}
+
+// Change a logged meal (the estimate was off); the day's totals move by the difference.
+export function editMeal(entries, date, id, patch) {
+  const cur = entries.find(e => e.date === date);
+  const m = cur?.meals?.find(x => x.id === id);
+  if (!m) return entries;
+  const next = {
+    ...m,
+    ...(typeof patch.name === 'string' && patch.name.trim() ? { name: patch.name.trim().slice(0, MEAL_LIMITS.name) } : {}),
+    protein: Math.round(clamp(patch.protein ?? m.protein, MEAL_LIMITS.protein)), kcal: Math.round(clamp(patch.kcal ?? m.kcal, MEAL_LIMITS.kcal)),
+    carbs: Math.round(clamp(patch.carbs ?? m.carbs, MEAL_LIMITS.carbs)), fat: Math.round(clamp(patch.fat ?? m.fat, MEAL_LIMITS.fat))
+  };
+  const day = {
+    ...cur, protein: Math.max(0, Math.min(1000, (cur.protein || 0) - m.protein + next.protein)),
+    kcal: Math.max(0, Math.min(20000, (cur.kcal || 0) - m.kcal + next.kcal)), meals: cur.meals.map(x => (x.id === id ? next : x))
+  };
+  return [...entries.filter(e => e.date !== date), day];
 }
 
 export function removeMeal(entries, date, id) {

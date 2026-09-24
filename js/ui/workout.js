@@ -17,10 +17,14 @@ import { openSheet, closeTop } from './sheet.js';
 import { openPicker } from './picker.js';
 import { startCardsHTML, workoutTitle } from './today.js';
 import { renderLiveCardio } from './cardio.js';
-import { suggest } from '../progression.js';
+import { suggest, userStep } from '../progression.js';
+
+// the − / + step for the exercise in front of you (Settings → Workout → Weight steps)
+const curStep = () => { const w = state.active; const ex = w?.exercises[w.current]; return userStep(ex && state.catalog.get(ex.exerciseId)); };
 import { usualMinutes, timeStatus } from '../insights.js';
 import { handsFreeOn, hfPillHTML, toggleHandsFree } from './handsfree.js';
 import { goalAimHTML } from './goals.js';
+import { figureHTML } from './figure.js';
 
 const C = 157.08; // ring circumference, r=25
 const REST_LINGER = 4000; // keep the card up after rest ends
@@ -49,7 +53,7 @@ export function renderWorkout(root) {
   if (!w) {
     ui.restVisible = false;
     root.innerHTML = `<div class="tabtop"></div>
-      <h1 class="greet tabh">${t('workout.noneTitle')}</h1><p class="sub">${t('workout.noneSub')}</p>${startCardsHTML()}`;
+      <div class="hhead"><h1 class="greet tabh">${t('workout.noneTitle')}</h1><button class="iconbtn" data-historyscreen aria-label="${t('history.title')}">${I.history}</button></div><p class="sub">${t('workout.noneSub')}</p>${startCardsHTML()}`;
     return;
   }
 
@@ -66,7 +70,9 @@ export function renderWorkout(root) {
         <div class="emptyglyph">${I.workout}</div>
         <h2>${t('workout.emptyTitle')}</h2><p>${t('workout.emptySub')}</p>
         <button class="log" data-act="add-exercise">${I.plus}<span>${t('workout.addExercise')}</span></button>
-      </div>`;
+      </div>
+      ${quickAddHTML()}
+      ${getKey('groq') ? `<p class="sayhint wsay">${I.mic}<span>${esc(t('workout.emptySay'))}</span></p>` : ''}`;
     return;
   }
 
@@ -86,6 +92,7 @@ export function renderWorkout(root) {
 
   root.innerHTML = header + `
     <div class="exhead">
+      ${figureHTML(info || { id: ex.exerciseId }, { move: true, cls: 'exfig' })}
       <div class="txt">
         <p>${t('workout.exerciseOf', { i: i + 1, n: w.exercises.length })}</p>
         <h1><button data-act="overview">${esc(exName(ex.exerciseId))}</button></h1>
@@ -329,7 +336,7 @@ function setDraft(kg, reps) {
 
 function stepKg(dir) {
   const v = values();
-  const kg = Math.min(W.LIMITS.kgMax, stepWeight(v.kg, dir, unit()));
+  const kg = Math.min(W.LIMITS.kgMax, stepWeight(v.kg, dir, unit(), curStep()));
   haptic('tap');
   if (kg !== v.kg) ui.tick = { field: 'kg', dir };
   setDraft(kg, v.reps);
@@ -462,8 +469,8 @@ function editSetSheet(setId) {
     const readReps = () => { const n = parseNumber(repsIn.value); if (n != null) reps = n; };
     kgIn.onchange = () => { readKg(); paint(); };
     repsIn.onchange = () => { readReps(); paint(); };
-    el.querySelector('[data-k="kg-"]').onclick = () => { readKg(); kg = stepWeight(kg, -1, unit()); haptic('tap'); paint(); };
-    el.querySelector('[data-k="kg+"]').onclick = () => { readKg(); kg = Math.min(W.LIMITS.kgMax, stepWeight(kg, 1, unit())); haptic('tap'); paint(); };
+    el.querySelector('[data-k="kg-"]').onclick = () => { readKg(); kg = stepWeight(kg, -1, unit(), curStep()); haptic('tap'); paint(); };
+    el.querySelector('[data-k="kg+"]').onclick = () => { readKg(); kg = Math.min(W.LIMITS.kgMax, stepWeight(kg, 1, unit(), curStep())); haptic('tap'); paint(); };
     el.querySelector('[data-k="reps-"]').onclick = () => { readReps(); reps = Math.max(1, reps - 1); haptic('tap'); paint(); };
     el.querySelector('[data-k="reps+"]').onclick = () => { readReps(); reps = Math.min(W.LIMITS.repsMax, reps + 1); haptic('tap'); paint(); };
     el.querySelector('[data-k=save]').onclick = () => {
@@ -535,6 +542,15 @@ function overviewSheet() {
       }
     });
   }, { label: t('workout.exercises') });
+}
+
+// Your most-trained lifts as one-tap starts for an empty workout.
+function quickAddHTML() {
+  const { t, lang } = state;
+  const ids = Object.keys(state.usage || {}).sort((a, b) => state.usage[b] - state.usage[a]).filter(id => state.catalog.get(id)).slice(0, 8);
+  if (!ids.length) return '';
+  return `<div class="section"><span class="label">${t('workout.yourLifts')}</span></div>
+    <div class="qlifts">${ids.map((id, i) => `<button class="qlift solid" data-act="quick-exercise" data-id="${esc(id)}" style="--i:${i}">${figureHTML(state.catalog.get(id), { cls: 'qfig' })}<span>${esc(state.catalog.name(id, lang))}</span></button>`).join('')}</div>`;
 }
 
 function addExerciseFlow() {
@@ -636,6 +652,10 @@ export function initWorkout(root, actions) {
     },
     overview: () => overviewSheet(),
     'add-exercise': () => addExerciseFlow(),
+    'quick-exercise': el => {
+      try { update(w => W.addExercise(w, el.dataset.id), { undo: 'add', reason: 'add' }); haptic('success'); }
+      catch { toast({ title: esc(state.t('toast.limit')), error: true }); }
+    },
     finish: () => finishSheet()
   });
 

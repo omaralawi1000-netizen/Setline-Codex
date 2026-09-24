@@ -205,3 +205,76 @@ Known: some phones' "dark theme for websites" still re-colours the app even with
 - [x] Dock minimizes like iOS while you scroll down: a small pill with the current tab and the orb; scroll up or tap the pill to open it again
 - [x] Status bar: every theme-color tag (and the manifest) carries the app's top colour from the first paint, per theme. An installed app picks up a new manifest colour only after it's reinstalled or Chrome refreshes it. Android doesn't let web apps draw or blur under the status bar
 - [x] Onboarding is a conversation: "Let's get to know you". The Coach asks out loud, listens with the smart pause (or you type), reacts like a friend and asks only what it doesn't know yet; profile and notes fill in as you talk; the question screens that follow skip everything covered
+
+## 1.12.0: quicker voice, tidy dock, full screen, your split, exercise figures
+
+- [x] Voice: sends about 0.85 s after a finished sentence (was 1.3 s), and waits at most 3 s when you trail off (was 6 s); tap to send any time; swipe the orb up for the full screen
+- [x] Dock pill: the orb sits inside the pill, the dark ring behind it fades, one smooth easing for every part (no bounce on layout)
+- [x] Settings → Full screen: hides Android's status bar so the app runs edge to edge (it asks on the next tap; comes back after leaving the app)
+- [x] Spoken replies start sooner: the first sentence of a longer reply is made on its own and plays while the rest is made
+- [x] The getting-to-know-you chat asks for your current split day by day (exercises, sets, reps) and offers "Use my split" to save it as your routines; "Build my plan" passes it to the Coach
+- [x] Exercise figures: a little figure for every exercise (about 30 movements), still in the exercise picker, moving on the workout screen and the exercise page
+- [x] Taps were sometimes swallowed while Today's cards glided (a view transition takes over input): cards now glide only when they really come, go or reorder, never on the first paint
+- [x] Restraint pass (on request, from a "looks vibecoded" checklist): one quiet glow instead of the purple-to-blue wash and aurora, no film grain, solid cards on the page (glass only on the dock, sheets and toasts), flat primary buttons, neutral labels, more contrast in grey text; the orb stays the one bold thing
+
+## 1.13.0: Food, and a rest ping in the background
+
+- [x] Food screen (Today's Food card → Food): calorie ring with "kcal left", protein/carbs/fat bars against daily targets; targets worked out from the profile and bodyweight (Mifflin-St Jeor, activity from training days and cardio, goal adjustment, protein per kg, fat ≥ 0.8 g/kg), editable by tapping the ring; Scan / Photo / Say it / Type; favourites; water glasses; meals by breakfast, lunch, dinner, snacks (tap: move, log again, favourite, delete with undo); a 7-day chart with the target line; earlier days
+- [x] Motion: numbers, the ring and the bars glide from their old values when anything is logged; a new meal arrives with a glow; a deleted one folds away; parts rise in on entry; changing day slides the page; water glasses fill with a spring
+- [x] The Coach sees today's calories, macros and water against the targets
+- [x] Rest ping in the background: the service worker is handed the rest's end time and waits it out itself, so the notification comes even when the app is frozen in the background, in another app or closed (up to ~4.5 min rests; longer ones fall back to the page's timer). The first rest asks once whether to turn it on
+
+## 1.13.1: faster, smoother scanner
+
+- [x] Reads every camera frame (was ~9 a second); a 12–13 digit code with a valid check digit is trusted on the first read (8-digit codes still need two); the camera opens while support is checked; continuous focus and a slight zoom where the phone allows
+- [x] The product lookup starts the moment a code is seen, runs during the lock animation (shortened to 0.36 s), and gives up after 7 s instead of hanging; the product photo loads while you pick the amount, so Add closes at once
+- [x] Recent products as one-tap chips on the camera; the amount you had last time is preselected; the camera fades in once it's live and dims when a code locks
+- [x] Measured: code in view → product card in ~0.8 s with a slow (300 ms) server; a recent product in ~0.2 s
+
+## 1.13.2: second restraint pass (the "looks vibecoded" list, whole app)
+
+- [x] No violet-to-lilac/blue gradients left outside the orb: progress bars, toast and card timers, goal and muscle bars, onboarding bar and slider, voice wave, week ring and sparklines are one solid colour; "done" states are solid green
+- [x] No tinted gradient cards (Drive nudge, avatar, chat bubbles, meal numbers); state shows by colour alone
+- [x] One spacing rhythm on Today and Food: 28 px above a section title, 10 px below, 12 px between cards
+- [x] Copy: no symbols in labels ("Favourited"), and "Your log lives on this phone" instead of claiming everything stays on the phone (voice and Coach go to Groq and Gemini)
+- Kept on purpose: the orb (the app's one bold thing), Manrope (not Inter), the app's own icons, no emoji, no em dashes, glass only where something floats
+
+## 1.14.0: a look over the whole app
+
+- [x] Workout: weight and reps each sit in their own panel with bigger −/+ (they crowded into each other around the ×); the panel you're typing in lights up
+- [x] Settings: rows with a long description or a wide control (reply voice, languages) wrap the control under the label instead of squeezing the label into a thin column
+- [x] Session highlights on every workout (shown right after Finish): "Stronger on 2 of 3 lifts", volume against the last time you did that routine, where the week stands, and each lift's best set against last time (↑ ↓ = or first time), compared by estimated max
+
+## 1.15.0: say it however you like; Food gets its own tab
+
+- [x] Long, natural sentences give the gist: "Just started my back workout. I'm on T-bar row. I have 80 kilos on. I did 9 reps. (mumble)" → T-bar row 80 × 9. Weight, reps and the exercise are pulled from any clause (a cue like "I'm on…" lets misheard names through: "C bar row" → T-bar row); noise is ignored; "start my back workout" starts the matching routine or an empty one
+- [x] Logging a set with no workout running just starts one (the named routine, or an empty workout) and logs it, instead of asking; with no routines at all it never asks
+- [x] Tabs: Today · Workout · orb · Food · Coach. Food is a tab of its own (quick protein +20/+30/+40 moved there); History is the clock button on the Workout tab (and Last session on Today), with a back button; after Finish, back goes to Today
+- [x] Today is lighter: no meal row, favourites or protein chips (they live in Food); the Food card on Today shows calories left and opens the tab; a clean fork-and-knife icon for food
+
+## 1.16.0: black bar blends in, "I benched…", patient Coach, customizable Food
+
+- [x] Status bar: the user's phone keeps it black whatever the page asks (Samsung / installed-app behaviour), so the app's top edge is now the same pure black and melts into the page below; theme-color and manifest are #000 too, so it's seamless everywhere. Full screen (Settings) plus the phone's own camera-cutout setting removes the bar entirely
+- [x] Voice: past-tense lifts ("I benched…", "squatted 140 for 5", "deadlifted 180 kilos for 3 reps") name the exercise; "3 sets of 100 kilos for 8 reps" reads 100 as the weight, not the reps
+- [x] Coach: waits up to 45 s for the first words (thinking models are quiet at first), thinking capped so answers start sooner (asked again without the cap on models that refuse it), a timeout moves on to the next model, busy servers get three patient rounds
+- [x] Food → Customize: switch calories, carbs, fat, water, favourites, quick protein buttons and the week chart on or off; with calories off the ring (and Today's card) follows protein; Daily targets from the same sheet
+
+## 1.17.0: make it yours (the useful kind of customization)
+
+- [x] Quick add buttons: calories or protein, with your own three amounts (Food → Customize); quick calories log as a "Quick add" entry that counts and can be edited or undone
+- [x] Edit a logged meal: name, calories, protein, carbs, fat, or scale the whole portion (×0.5 … ×2); the day's totals move by the difference; undo
+- [x] Reorder: Today's cards and the Food tab's sections move up and down in Customize (and still switch on/off); a running workout always leads Today
+- [x] Weight steps (Settings → Workout): the −/+ step for barbells, dumbbells and machines (0.5–5 kg); the progression suggestions use the same steps
+- [x] Real maintenance: after 14+ days of food and 6+ weigh-ins, Daily targets shows the maintenance your own intake and scale imply (intake minus the weight trend × 7700 kcal/kg) and offers it, adjusted for your goal, as the calorie target
+
+## 1.18.0: say a set in any order; never "add an exercise first"
+
+- [x] Word order doesn't matter: the sets, the weight, the reps and the exercise are found wherever they are ("tricep pushdowns with two sets and 50 kilograms for eight reps", "two sets of tricep pushdowns at 50 kilos for 8", "I did 8 reps of tricep pushdown at 50 kilograms, 2 sets", "rope pushdown 25 kg 12 reps 3 sets"); it also fills an exercise or a set count a stricter reading dropped
+- [x] No exercise named and none on screen: "Which exercise was that?" with your most-trained lifts as one tap, or Pick another (the list), then the set is logged; never a dead end
+- [x] Empty workout: your lifts as one-tap starts (with their figures) and an example of what to say
+
+## 1.19.0: a whole session in one breath, a Coach that remembers, Monday check-ins
+
+- [x] Say a whole session: "bench 3x8 at 80, then rows 3x10 at 60, then lateral raises 3 by 15 with 10" / "squats 5 sets of 5 at 120. After that leg press 3 sets of 12 at 200. Then leg curls 3 by 12 at 45" logs every lift and set in one card with one Undo; starts a workout if none is running (works during or after the gym)
+- [x] Coach memory: when you tell the Coach something lasting (dislikes, injuries, schedule, events, equipment), it keeps it ("Remembered: hates lunges" under the reply) and uses it in every answer, plan and check-in; Settings → What your coach knows lists it, add your own, delete any
+- [x] Weekly check-in: on the first open of a new week the Coach quietly writes a look back (sessions vs goal, lifts that moved or stalled, records, food vs targets, weight, sleep, goals) and this week's plan with concrete targets; a card on Today until you've read it; on/off in the memory sheet

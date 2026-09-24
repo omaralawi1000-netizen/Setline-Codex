@@ -5,6 +5,7 @@ import { e1rm, bestsFrom } from './pr.js';
 import { weekStart, weekStreak } from './stats.js';
 import { cardioName, paceText, cardioMinutes } from './cardio.js';
 import { bodyTrend, proteinTarget, dateKey } from './body.js';
+import { autoTargets, targetsFor, dayTotals } from './nutrition.js';
 import { sleepTrend } from './checkin.js';
 import { profileText } from './profile.js';
 import { deloadStatus, muscleBalance, usualMinutes } from './insights.js';
@@ -24,6 +25,7 @@ export function systemPrompt(lang) {
     'For pain or injury, give general guidance only and suggest seeing a physiotherapist or doctor.',
     'Use the PROFILE (age, goal, experience, days, equipment, injuries) to tailor every answer. "Planned" sets are what the plan says for the workout in progress.',
     'You can see the data but cannot change it yourself: when something should be logged or changed, say exactly what to tap or say.',
+    'MEMORY: when the user tells you something lasting about themselves (a preference, dislike, injury or pain, schedule, event or deadline, equipment, sport, how they like to train), add at the very end of your reply one line per new fact: "REMEMBER: <the fact in a few words>" (at most two, only facts not already in MEMORIES). The app saves these and hides the line; never mention it. Use MEMORIES in every answer.',
     'The user is already talking to you in the Coach. Never tell them to go to the Coach tab. When they want a training plan, the app builds it from their request automatically; if a request reaches you anyway, say you will build it when they ask for it, e.g. "make me a 5-day plan".',
     APP_GUIDE
   ].join(' ');
@@ -34,12 +36,16 @@ export const APP_GUIDE = [
   'APP GUIDE (Setline, a voice-first gym app).',
   'Voice orb in the middle of the bottom bar: hold to talk, a quick tap listens hands-free (tap the orb again to send), pull it up for the full voice screen.',
   'Things to say during a workout: "80 kilo 8", "same again", "I got 9 reps", "2 kg more" or "one rep more" (relative to the planned set), "as planned", "4 plates", "9, 8 and 8 at 100", "next exercise", "skip rest", "add 30 seconds", "swap to incline press", "undo", "finish".',
+  'A whole session at once: "bench 3x8 at 80, then rows 3x10 at 60, then lateral raises 3 by 15 with 10" logs every lift and set (it starts a workout if none is running). Sets can be said in any word order.',
+  'The Coach keeps MEMORIES (Settings → What your coach knows) and writes a weekly check-in every Monday (shown on Today until read).',
   'Other voice: "start push day", "30 minutes zone 2 on the bike", "slept 7 hours, legs sore", "I ate 3 eggs and toast", "30 g protein", "I weigh 82", "what should I lift?", or any question for you.',
   'Headphones button on the workout screen: hands-free mode listens for sets and speaks rest cues.',
   'Workout screen: steppers and Log set, rest timer (+15/-15 teaches that exercise its rest), warm-up ramp, plate calculator, swipe a set left to delete, tap a set to edit, auto-advance after the last planned set, Finish.',
-  'Today: one-tap morning check-in (how you feel, sleep, sore spots → readiness), Up next routine, cardio start and "again" chip, week ring and cardio minutes, muscles this week, deload suggestion after 6 steady weeks, bodyweight, protein ring, Snap a meal (photo or text → protein and calories), barcode scanner for packaged food, one-tap favourite meals.',
+  'Tabs: Today, Workout, the orb in the middle, Food, Coach. History is the clock button on the Workout tab (and Last session on Today).',
+  'Today: one-tap morning check-in (how you feel, sleep, sore spots → readiness), Up next routine, cardio start and "again" chip, week ring and cardio minutes, muscles this week, deload suggestion after 6 steady weeks, bodyweight, a Food card (calories left, protein) that opens the Food tab. Food tab: calorie ring and protein/carbs/fat against daily targets (from the profile, editable by tapping the ring), Scan barcode / Photo / Say it / Type, favourite meals, quick add buttons (calories or protein, your own amounts), water glasses, meals by breakfast/lunch/dinner/snacks (tap to move, log again, favourite, delete), a 7-day chart.',
   'Plans: asking for one in plain words here ("I need a 5-day plan", "make my plan 4 days") builds a plan card right away, with Replace my routines or Add.',
   'History: every workout and cardio session, "Do this again". Progress: volume, cardio, bodyweight, sleep, muscles, lifts with e1RM curves and records. Body & photos: measurements, progress photos (on the phone only), before/after compare.',
+  'Customize (Today and Food): show/hide and reorder sections; Food can track calories or only protein, carbs, fat, water. Tap a meal → Edit to fix an estimate or scale the portion. Daily targets shows the real maintenance worked out from 2+ weeks of food and weight. Settings → Workout → Weight steps sets the −/+ step for barbells, dumbbells and machines.',
   'Settings: profile (edit answers), voice and replies, API keys, Google Drive backup, export/import, units, rest default, auto-advance.'
 ].join(' ');
 
@@ -65,6 +71,8 @@ export function buildContext(snap) {
   out.push(`Logged workouts: ${hist.length}${hist.length ? `, first ${d(hist[hist.length - 1].startedAt)}, latest ${d(hist[0].startedAt)}` : ''}.`);
 
   out.unshift(profileText(settings.profile, now));
+  const mem = (settings.memories || []).map(m => m.text);
+  if (mem.length) out.splice(1, 0, `MEMORIES (what the user told you before): ${mem.join('; ')}.`);
   const w = snap.active;
   if (w) {
     const restLeft = w.rest ? Math.max(0, Math.round((w.rest.endsAt - now) / 1000)) : 0;
@@ -143,6 +151,9 @@ export function buildContext(snap) {
   const target = tr ? proteinTarget(tr.latest.kg, settings.proteinPerKg) : null;
   const protein = (snap.nutrition || []).find(n => n.date === dateKey(now))?.protein || 0;
   out.push(`PROTEIN today: ${protein} g${target ? ` of a ${target} g target` : ' (no target without bodyweight)'}.`);
+  const ft = targetsFor(autoTargets({ profile: settings.profile, bodyweightKg: tr?.latest.kg, proteinPerKg: settings.proteinPerKg, now }), settings.foodTargets);
+  const ftot = dayTotals((snap.nutrition || []).find(n => n.date === dateKey(now)));
+  out.push(`FOOD today: ${ftot.kcal} of ${ft.kcal} kcal, protein ${ftot.protein}/${ft.protein} g, carbs ${ftot.carbs}/${ft.carbs} g, fat ${ftot.fat}/${ft.fat} g, water ${ftot.water}/${ft.water} ml (targets ${settings.foodTargets ? 'set by the user' : 'worked out from the profile'}).`);
   const ci = (snap.daily || []).find(d => d.date === dateKey(now));
   if (ci) out.push(`CHECK-IN today: ${ci.sleepH != null ? `${ci.sleepH} h sleep` : 'sleep not given'}, ${ci.energy != null ? `energy ${ci.energy}/5` : 'energy not given'}, sore: ${ci.sore?.length ? ci.sore.join(', ') : 'nothing'}.`);
   const sl = sleepTrend(snap.daily || [], 7);
@@ -289,4 +300,27 @@ export function planToRoutines(plan, now = Date.now()) {
     exercises: d.exercises.map(e => ({ exerciseId: e.exerciseId, sets: Array.from({ length: e.sets }, () => ({ reps: e.reps, kg: null })) })),
     createdAt: now + i
   }));
+}
+
+// ---------- memory: "REMEMBER: …" lines the Coach adds when you tell it something lasting ----------
+
+const REMEMBER_RE = /^\s*REMEMBER:\s*(.+?)\s*$/gim;
+// The reply without the memory lines, and the facts they carried.
+export function splitMemories(text) {
+  const facts = [];
+  const clean = String(text || '').replace(REMEMBER_RE, (_, f) => { facts.push(f.replace(/[.\s]+$/, '').slice(0, 140)); return ''; }).replace(/\n{3,}/g, '\n\n').trim();
+  return { text: clean, facts: facts.slice(0, 2) };
+}
+// While streaming, hide a memory line as soon as it starts.
+export const hideMemoryTail = text => String(text || '').replace(/\n?\s*REMEMBER:[^]*$/i, '').replace(/\n?\s*REM(?:E(?:M(?:B(?:E(?:R)?)?)?)?)?$/, '');
+
+const key = s => s.toLowerCase().replace(/[^a-z0-9æøå ]/g, '').replace(/\s+/g, ' ').trim();
+export function addMemories(list, facts, now = Date.now()) {
+  const out = [...(list || [])];
+  for (const f of facts) {
+    const k = key(f);
+    if (!k || out.some(m => key(m.text) === k)) continue;
+    out.push({ id: 'mem-' + now.toString(36) + '-' + out.length, text: f, at: now });
+  }
+  return out.slice(-40);
 }

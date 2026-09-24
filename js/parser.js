@@ -12,7 +12,7 @@ import { normalize } from './catalog.js';
 import { lbToKg, round } from './units.js';
 import { CARDIO_TYPES } from './cardio.js';
 
-export const INTENTS = ['LogSet', 'LogSets', 'LogCardio', 'StartCardio', 'LogBodyweight', 'LogProtein', 'LogMeal', 'CheckIn', 'LogRel', 'SetGoal', 'RepeatLast', 'AdjustLast', 'EditLast', 'DeleteLast', 'Undo', 'NextExercise', 'PrevExercise',
+export const INTENTS = ['LogSet', 'LogSets', 'LogBatch', 'LogCardio', 'StartCardio', 'LogBodyweight', 'LogProtein', 'LogMeal', 'CheckIn', 'LogRel', 'SetGoal', 'RepeatLast', 'AdjustLast', 'EditLast', 'DeleteLast', 'Undo', 'NextExercise', 'PrevExercise',
   'AddExercise', 'SwapExercise', 'StartRoutine', 'StartEmpty', 'Finish', 'Discard', 'StartRest', 'AdjustRest', 'SkipRest',
   'Query', 'Cancel', 'Help', 'Ask', 'Unknown'];
 
@@ -203,7 +203,8 @@ function setValues(tok, ctx) {
     if (isNum(tok[i]) && SETS.has(tok[i + 1])) {
       let k = i + 2;
       if (['of', 'af', 'med', 'x', 'á', 'a', 'på'].includes(tok[k])) k++;
-      if (isNum(tok[k] ?? '')) { count = Number(tok[i]); reps = Number(tok[k]); take(i, i + 1, k); if (k - i === 3) take(i + 2); if (REPS.has(tok[k + 1])) take(k + 1); }
+      if (isNum(tok[k] ?? '') && (KG.has(tok[k + 1]) || LB.has(tok[k + 1]))) { count = Number(tok[i]); take(i, i + 1); if (k - i === 3) take(i + 2); } // "3 sets of 100 kilos (for 8)"
+      else if (isNum(tok[k] ?? '')) { count = Number(tok[i]); reps = Number(tok[k]); take(i, i + 1, k); if (k - i === 3) take(i + 2); if (REPS.has(tok[k + 1])) take(k + 1); }
     }
   }
   // labeled numbers
@@ -359,11 +360,153 @@ function readZone(s) {
 
 const R = (re, s) => re.exec(s);
 
+// Long, natural sentences ("just started my back workout, I'm on T-bar row, I've got 80 kilos on,
+// did 9 reps") parse as one command when they can; otherwise the gist is pulled out of them.
 export function parse(text, ctx = {}) {
+  const batch = parseBatch(text, ctx);
+  if (batch) return batch;
+  const r = parseOne(text, ctx);
+  if (r.type === 'Unknown') {
+    const g = gist(text, ctx, r); // "I'm on C bar row" names the exercise better than word matching
+    if (g?.exerciseId) return g;
+    return slots(text, ctx, r) || g || r;
+  }
+  // a set that lost its exercise or its count to word order: fill in what the slots found
+  if (r.type === 'LogSet') {
+    const f = slots(text, ctx, r);
+    if (f && f.kg === r.kg && f.reps === r.reps) {
+      if (!r.exerciseId && f.exerciseId) r.exerciseId = f.exerciseId;
+      if ((r.count || 1) === 1 && f.count > 1) r.count = f.count;
+    }
+  }
+  return r;
+}
+
+// A whole session in one go: "bench 3x8 at 80, then rows 3x10 at 60, then lateral raises 3 by 15 with 10".
+// Each piece that names its own lift and numbers becomes one item; needs two or more different lifts.
+const STRONG_SPLIT = /\b(?:and then|then|after that|afterwards|next|followed by|og så|så|derefter|bagefter|efter det)\b|[;\n]|[.!?](?=\s|$)/i;
+export function parseBatch(text, ctx = {}) {
+  const raw = String(text || '').trim();
+  const one = t => {
+    const r = parseOne(t, ctx);
+    if (r.type === 'LogSet' && r.exerciseId) return r;
+    const f = slots(t, ctx, r);
+    return f?.exerciseId ? f : null;
+  };
+  for (const splitter of [STRONG_SPLIT, /,/]) {
+    const parts = raw.split(new RegExp(splitter.source, 'gi')).map(x => x.trim()).filter(x => /\d/.test(x) || /[a-zæøå]{3}/i.test(x));
+    if (parts.length < 2) continue;
+    const items = [];
+    for (const p of parts) {
+      const r = one(p);
+      if (r) items.push({ exerciseId: r.exerciseId, kg: r.kg, reps: r.reps, count: r.count || 1 });
+      else if (/\d/.test(p)) { items.length = 0; break; } // a piece with numbers we can't read: not a batch
+    }
+    if (items.length >= 2 && new Set(items.map(i => i.exerciseId)).size >= 2) {
+      return { type: 'LogBatch', items: items.slice(0, 12), lang: detectLang(clean(raw), ctx.lang), heard: raw };
+    }
+  }
+  return null;
+}
+
+// Word order doesn't matter: "tricep pushdowns with two sets and 50 kilograms for eight reps",
+// "two sets of tricep pushdowns at 50 kilos for 8", "rope pushdown 25 kg 12 reps 3 sets".
+// Finds the sets, the weight, the reps and the exercise wherever they are.
+const FILLER = new Set(('i did just my the a an of with and at for on then on the some reps rep sets set kilos kilo kg kgs kilograms pounds lbs each ' +
+  'jeg lavede tog med og på af til sæt gentagelser kilo hver').split(' '));
+function slots(text, ctx, base) {
+  let s = verbsToLifts(wordsToNumbers(clean(String(text || '')), base.lang));
+  const tok = s.split(' ');
+  const used = new Array(tok.length).fill(false);
+  let kg = null, reps = null, count = null;
+  const at = (test, fn) => { for (let i = 0; i < tok.length; i++) if (!used[i] && test(i)) { fn(i); return true; } return false; };
+  const num = i => /^\d+(\.\d+)?$/.test(tok[i] || '');
+  // N sets (of M)
+  at(i => num(i) && /^(sets?|sæt|rounds?)$/.test(tok[i + 1] || ''), i => {
+    count = Number(tok[i]); used[i] = used[i + 1] = true;
+    if (['of', 'af', 'med', 'x'].includes(tok[i + 2]) && num(i + 3) && !KG.has(tok[i + 4]) && !LB.has(tok[i + 4])) { reps = Number(tok[i + 3]); used[i + 2] = used[i + 3] = true; }
+  });
+  // N kg / lb
+  at(i => num(i) && (KG.has(tok[i + 1]) || LB.has(tok[i + 1])), i => {
+    kg = LB.has(tok[i + 1]) || (ctx.unit === 'lb' && !KG.has(tok[i + 1])) ? round(lbToKg(Number(tok[i])), 4) : Number(tok[i]); used[i] = used[i + 1] = true;
+  });
+  // N reps
+  if (reps == null) at(i => num(i) && REPS.has(tok[i + 1] || ''), i => { reps = Number(tok[i]); used[i] = used[i + 1] = true; });
+  // "for 8", "x 8"
+  if (reps == null) at(i => ['for', 'x', 'gange'].includes(tok[i]) && num(i + 1) && !KG.has(tok[i + 2]), i => { reps = Number(tok[i + 1]); used[i] = used[i + 1] = true; });
+  // a bare number left over: the weight if we have reps, the reps if we have the weight
+  const bare = tok.map((x, i) => (!used[i] && num(i) ? i : -1)).filter(i => i >= 0);
+  if (bare.length === 1 && kg == null && reps != null) { kg = Number(tok[bare[0]]); used[bare[0]] = true; }
+  else if (bare.length === 1 && reps == null && kg != null) { reps = Number(tok[bare[0]]); used[bare[0]] = true; }
+  if (reps == null || !Number.isInteger(reps) || reps < 1 || reps > 100) return null;
+  // the exercise: the best-matching run of the words that are left
+  const words = tok.map((x, i) => (used[i] || FILLER.has(x) || EDGE_FILLER.has(x) || /^\d/.test(x) ? null : x));
+  let best = null;
+  for (let len = 4; len >= 1; len--) {
+    for (let i = 0; i + len <= words.length; i++) {
+      const run = words.slice(i, i + len);
+      if (run.some(x => !x)) continue;
+      const hit = matchExercise(run.join(' '), ctx);
+      if (hit?.exerciseId && hit.score >= (len >= 2 ? 35 : 50) && (!best || hit.score + len * 4 > best.v)) best = { id: hit.exerciseId, v: hit.score + len * 4 };
+    }
+  }
+  const exerciseId = best?.id || null;
+  const bw = exerciseId && ctx.catalog?.get(exerciseId)?.equipment === 'bodyweight';
+  if (kg == null && !bw) return null;
+  return { type: 'LogSet', kg: kg ?? 0, reps, count: Math.max(1, Math.min(10, count || 1)), ...(exerciseId ? { exerciseId } : {}), lang: base.lang, heard: base.heard, slots: true };
+}
+
+const KG_RE = /(\d+(?:\.\d+)?)\s*(kg|kgs|kilo|kilos|kilogram|kilograms|kilo s|kiloer|pounds?|lbs?)\b/;
+const REPS_RE = /(\d+)\s*(reps?|repetitions?|gentagelser|gentagelse|times|gange)\b|\b(?:did|made|got|hit|lavede|tog|fik)\s+(\d+)\b(?!\s*(?:kg|kilo|kilos|pounds|lbs|sets?|sæt))/;
+const CUE_RE = /(?:^|\b)(?:i am on|im on|i m on|i am doing|im doing|doing|now on|on to|onto|moving to|starting with|next is|jeg er på|jeg er i gang med|jeg laver|nu)\s+(?:the\s+|some\s+)?(.+)$/;
+const START_RE = /\b(?:start(?:ed|ing)?|began|begin|kicked off|startede|starter|begyndte)\b.*?\b([a-zæøå]+)?\s*(?:workout|session|day|træning|dag)\b/;
+
+function gist(text, ctx, unknown) {
+  const raw = String(text || '');
+  const parts = raw.split(/[.!?;\n]+|,\s+/).map(x => wordsToNumbers(clean(x), unknown.lang)).filter(Boolean);
+  const all = parts.join(' . ');
+  if (parts.length < 2) { // one clause: only "start(ed) my back workout" is worth guessing at
+    const m1 = START_RE.exec(all);
+    if (!m1 || ctx.active) return null;
+    const rid = m1[1] ? (ctx.routines || []).find(r => normalize(r.name || '').includes(m1[1]))?.id : null;
+    return rid ? { type: 'StartRoutine', routineId: rid, lang: unknown.lang, heard: unknown.heard, gist: true } : { type: 'StartEmpty', lang: unknown.lang, heard: unknown.heard, gist: true };
+  }
+  const out = (type, fields = {}) => ({ type, ...fields, lang: unknown.lang, heard: unknown.heard, gist: true });
+  let kg = null, reps = null, exerciseId = null, routineWord = null;
+  let m;
+  if ((m = KG_RE.exec(all))) kg = /pound|lb/.test(m[2]) || (ctx.unit === 'lb' && !/kg|kilo/.test(m[2])) ? round(lbToKg(Number(m[1])), 4) : Number(m[1]);
+  if ((m = REPS_RE.exec(all))) reps = Number(m[1] || m[3]);
+  // the exercise: a clause that names one after a cue ("I'm on C bar row"), else any clause that is one
+  for (const p of parts) {
+    const c = CUE_RE.exec(p);
+    const phrase = (c ? c[1] : p).replace(/\b\d+(\.\d+)?\b.*$/, '').trim();
+    if (!phrase || phrase.split(' ').length > 5) continue;
+    const hit = matchExercise(phrase, ctx);
+    if (hit?.exerciseId && (c || hit.score >= 60)) { exerciseId = hit.exerciseId; break; }
+  }
+  if ((m = START_RE.exec(all))) routineWord = m[1] || '';
+  const routineId = routineWord ? (ctx.routines || []).find(r => normalize(r.name || '').includes(routineWord))?.id || null : null;
+  if (kg != null && reps && Number.isInteger(reps) && reps > 0 && reps <= 100) return out('LogSet', { kg, reps, count: 1, ...(exerciseId ? { exerciseId } : {}), ...(routineId ? { routineId } : {}) });
+  if (exerciseId) return out('AddExercise', { exerciseId, ...(routineId ? { routineId } : {}) });
+  if (routineId) return out('StartRoutine', { routineId });
+  if (routineWord != null && !ctx.active) return out('StartEmpty');
+  return null;
+}
+
+// "I benched 100", "squatted 140 for 5", "deadlifted 180": the verb names the lift.
+const LIFT_VERBS = [
+  [/\bbench(?:ed|ing)\b/g, 'bench'], [/\bsquat(?:ted|ting)\b/g, 'squat'], [/\bdeadlift(?:ed|ing)\b/g, 'deadlift'],
+  [/\bcurl(?:ed|ing)\b/g, 'curl'], [/\bshoulder press(?:ed|ing)\b/g, 'shoulder press'],
+  [/\boverhead press(?:ed|ing)\b/g, 'overhead press'], [/\bleg press(?:ed|ing)\b/g, 'leg press'], [/\blunged\b/g, 'lunge'],
+  [/\bhip thrust(?:ed|ing)\b/g, 'hip thrust'], [/\bpull(?:ed)? ups\b/g, 'pull ups'], [/\bshrugged\b/g, 'shrug']
+];
+export const verbsToLifts = s => LIFT_VERBS.reduce((a, [re, to]) => a.replace(re, to), s).replace(/\b(\d+) by (\d+)\b/g, '$1 x $2');
+
+function parseOne(text, ctx = {}) {
   const heard = String(text || '').trim();
   const base = clean(heard);
   const lang = detectLang(base, ctx.lang);
-  let s = wordsToNumbers(base, lang);
+  let s = verbsToLifts(wordsToNumbers(base, lang));
   const out = (type, fields = {}) => ({ type, ...fields, lang, heard });
   if (!s) return out('Unknown');
   // "4 plates", "2 plates a side", "3 plader": weight from plates, worked out once we know the exercise

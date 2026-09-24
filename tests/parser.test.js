@@ -250,3 +250,45 @@ test('bodyweight, protein and what to lift', () => {
   is('what should I lift', { type: 'Query', what: 'suggest' });
   is('hvad skal jeg løfte', { type: 'Query', what: 'suggest' });
 });
+
+test('a long, natural sentence gives the gist', () => {
+  const catalog = createCatalog();
+  const r = parse('Just started my batch workout. I am on C bar row. I have 80 kilos on. I did 9 reps. Istit Sivarong.', { catalog, lang: 'en', routines: [] });
+  assert.equal(r.type, 'LogSet');
+  assert.deepEqual([r.kg, r.reps, r.exerciseId], [80, 9, 't-bar-row']);
+  const s = parse('start my back workout', { catalog, lang: 'en', routines: [{ id: 'r1', name: 'Back day' }] });
+  assert.deepEqual([s.type, s.routineId], ['StartRoutine', 'r1']);
+  assert.equal(parse('Jeg er i gang med bænkpres. 60 kilo. Jeg lavede 8 gentagelser.', { catalog, lang: 'da' }).exerciseId, 'bench-press');
+  assert.equal(parse('The weather is nice. See you soon.', { catalog, lang: 'en' }).type, 'Unknown', 'chat stays unknown');
+});
+
+test('past-tense lifts and "sets of <weight>"', () => {
+  const catalog = createCatalog();
+  const p = t => parse(t, { catalog, lang: 'en', routines: [] });
+  const a = p('I benched 3 sets of 100 kilos for 8 reps.');
+  assert.deepEqual([a.type, a.count, a.kg, a.reps, a.exerciseId], ['LogSet', 3, 100, 8, 'bench-press']);
+  assert.equal(p('I squatted 140 for 5').exerciseId, 'back-squat');
+  assert.equal(p('deadlifted 180 kilos for 3 reps').exerciseId, 'deadlift');
+  assert.equal(p('rowing 20 minutes').type === 'LogSet', false, 'rowing stays cardio');
+});
+
+test('word order does not matter for a set', () => {
+  const catalog = createCatalog();
+  const p = t => parse(t, { catalog, lang: 'en', routines: [], active: { exercises: [], current: 0 } });
+  for (const t of ['Tricep pushdowns with two sets and 50 kilograms for eight reps.', 'Two sets of tricep pushdowns at 50 kilos for 8 reps',
+    'I did triceps pushdowns 50 kilos 8 reps two sets', 'I did 8 reps of tricep pushdown at 50 kilograms, 2 sets']) {
+    const r = p(t);
+    assert.deepEqual([r.type, r.exerciseId, r.count, r.kg, r.reps], ['LogSet', 'triceps-pushdown', 2, 50, 8], t);
+  }
+  const r = p('rope pushdown 25 kg 12 reps 3 sets');
+  assert.deepEqual([r.count, r.kg, r.reps], [3, 25, 12]);
+});
+
+test('a whole session in one sentence', () => {
+  const catalog = createCatalog();
+  const r = parse('Today I did squats 5 sets of 5 at 120. After that leg press 3 sets of 12 at 200. Then leg curls 3 by 12 at 45.', { catalog, lang: 'en', routines: [] });
+  assert.equal(r.type, 'LogBatch');
+  assert.deepEqual(r.items.map(i => [i.exerciseId, i.count, i.kg, i.reps]), [['back-squat', 5, 120, 5], ['leg-press', 3, 200, 12], ['lying-leg-curl', 3, 45, 12]]);
+  assert.equal(parse('bench 3x8 at 80, then rows 3x10 at 60', { catalog, lang: 'en' }).items.length, 2);
+  assert.equal(parse('bench 3x8 at 80', { catalog, lang: 'en' }).type, 'LogSet', 'one lift stays a set');
+});

@@ -1,5 +1,8 @@
 // Today: the hub. Streak, what's next, cardio, the week, body, last week's review, routines.
 import { state } from '../store.js';
+import { todayOrderOf } from '../settings.js';
+import { foodTargets } from './food.js';
+import { dayTotals } from '../nutrition.js';
 import { esc } from './dom.js';
 import { I } from './icons.js';
 import { routineName, estimateMinutes, nextRoutine } from '../routines.js';
@@ -9,14 +12,12 @@ import { doneSetCount, elapsedSec } from '../workout.js';
 import { getKey } from '../keys.js';
 import { thisWeek, lastSessionSummary, latestPR, sparkline, weekStreak, weekReview, weekStart } from '../stats.js';
 import { cardioMinutes, cardioName, cardioElapsed, paceText } from '../cardio.js';
-import { bodyTrend, proteinTarget, dateKey } from '../body.js';
+import { bodyTrend, dateKey } from '../body.js';
 import { cardioIcon, favouriteTypes } from './cardio.js';
 import { muscleBalance, deloadStatus } from '../insights.js';
 import { driveNudgeHTML } from './drive.js';
 import { checkinHTML } from './checkin.js';
-import { scanIcon } from './scan.js';
 import { goalCardsHTML } from './goals.js';
-import { favRowHTML } from './meal.js';
 
 const MIC = '<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.6 11.5a6.4 6.4 0 0 0 12.8 0M12 18v3"/></svg>';
 const C = 157.08; // ring r=25
@@ -178,8 +179,6 @@ function bodyHTML() {
   const { t, lang, settings } = state;
   const unit = settings.unit, u = t(`unit.${unit}`);
   const tr = bodyTrend(state.bodyweight);
-  const target = tr ? proteinTarget(tr.latest.kg, settings.proteinPerKg) : null;
-  const today = state.nutrition.find(n => n.date === dateKey())?.protein || 0;
   const sp = tr ? sparkline(tr.series, 96, 40, 6) : null;
   const weightCard = `<button class="mini solid body" data-body="weight"><span class="label">${t('body.weight')}</span>
       ${tr ? `<strong>${esc(weight(tr.latest.kg, unit, lang))} <small>${u}</small></strong>
@@ -187,20 +186,29 @@ function bodyHTML() {
         ${sp ? `<svg class="bspark" viewBox="0 0 96 40" aria-hidden="true"><polyline points="${sp.line}" fill="none" stroke="url(#sp)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="${sp.last.x}" cy="${sp.last.y}" r="3" style="fill:var(--accent)"/></svg>` : ''}`
       : `<span class="bsub">${t('body.noWeight')}</span><span class="bplus">${I.plus}</span>`}
     </button>`;
-  const pct = target ? Math.min(1, today / target) : 0;
+  // the food card: calories left and protein, opens the Food screen; the chips still add protein
+  const ft = foodTargets(), tot = dayTotals(state.nutrition.find(n => n.date === dateKey()));
+  const cal = !(settings.foodHide || []).includes('calories'); // calories off: the card follows protein
+  const kLeft = cal ? ft.kcal - tot.kcal : ft.protein - tot.protein;
+  const pct = Math.min(1, cal ? tot.kcal / ft.kcal : tot.protein / ft.protein);
   const R = 2 * Math.PI * 21;
-  const proteinCard = `<div class="mini solid protein"><span class="label">${t('body.protein')}</span>
-      <div class="prow2"><div class="pring"><svg viewBox="0 0 52 52" aria-hidden="true"><circle class="bg" cx="26" cy="26" r="21"/><circle class="fg" cx="26" cy="26" r="21" style="stroke-dasharray:${R};stroke-dashoffset:${R * (1 - pct)}"/></svg><b>${today}</b></div>
-      <span class="bsub">${target ? esc(t('body.proteinOf', { g: today, target })) : t('body.proteinNeedsBw')}</span></div>
-      <div class="padd">${[20, 30, 40].map(g => `<button class="chip" data-body="protein" data-g="${g}">+${g}</button>`).join('')}</div>
+  const proteinCard = `<div class="mini solid protein foodcard" data-foodscreen role="button" tabindex="0" aria-label="${esc(t('food.title'))}"><span class="label">${t('food.title')} <span class="fgo">→</span></span>
+      <div class="prow2"><div class="pring"><svg viewBox="0 0 52 52" aria-hidden="true"><circle class="bg" cx="26" cy="26" r="21"/><circle class="fg" cx="26" cy="26" r="21" style="stroke-dasharray:${R};stroke-dashoffset:${R * (1 - pct)}"/></svg><b>${Math.round(pct * 100)}<small>%</small></b></div>
+      <span class="bsub"><strong>${esc(new Intl.NumberFormat(lang === 'da' ? 'da-DK' : 'en-GB').format(Math.abs(kLeft)))}</strong> ${t(cal ? (kLeft < 0 ? 'food.kcalOver' : 'food.kcalLeft') : (kLeft < 0 ? 'food.gOver' : 'food.gLeft'))}${cal ? `<br>${esc(t('food.proteinOf', { g: tot.protein, target: ft.protein }))}` : ''}</span></div>
     </div>`;
-  const day = state.nutrition.find(n => n.date === dateKey());
-  const meals = day?.meals?.length || 0;
-  const mealRow = `<button class="mealrow solid" data-body="meal"><span class="mcam">${I.camera}</span>
-      <span class="l"><strong>${t('meal.snap')}</strong><span>${meals ? esc(t('meal.todaySub', { n: meals, kcal: day.kcal || 0 })) : t('meal.snapSub')}</span></span>
-      </button>`;
-  const mealWrap = `<div class="mealwrap">${mealRow}<button class="mscanbtn solid" data-body="scan" aria-label="${esc(t('scan.title'))}">${scanIcon}</button></div>`;
-  return `<div class="section"><span class="label">${t('label.body')}</span><button class="textbtn" data-bodyscreen>${t('bodyx.link')} →</button></div><div class="grid2">${weightCard}${proteinCard}</div>${mealWrap}${favRowHTML(4)}`;
+  return `<div class="section"><span class="label">${t('label.body')}</span><button class="textbtn" data-bodyscreen>${t('bodyx.link')} →</button></div><div class="grid2">${weightCard}${proteinCard}</div>`;
+}
+
+// The Coach's Monday check-in, until you've read it.
+function weeklyCardHTML() {
+  const { t } = state;
+  const s = state.settings;
+  const monday = dateKey(weekStart(Date.now()));
+  if (s.weeklyFor !== monday || s.weeklySeen === monday) return '';
+  const msg = [...state.chat].reverse().find(m => m.weekly === monday);
+  if (!msg) return '';
+  const preview = msg.text.replace(/\*\*?|#+\s/g, '').split('\n').map(x => x.trim()).filter(x => x && !/^(last week|this week|sidste uge|denne uge)\b:?$/i.test(x))[0] || '';
+  return `<button class="wkcard solid" data-weekly><span class="wki">${I.chat}</span><span class="l"><strong>${t('weekly.ready')}</strong><small>${esc(preview.slice(0, 110))}</small></span>${I.fwd}</button>`;
 }
 
 function reviewHTML() {
@@ -236,6 +244,18 @@ export function renderToday(root) {
   const hour = new Date().getHours();
   const busy = state.active || state.activeCardio;
   const hide = new Set(state.settings.todayHide || []), on = k => !hide.has(k);
+  // the cards, in your order (Today → Customize); a running workout always leads
+  const part = {
+    checkin: () => (busy || !on('checkin') ? '' : checkinHTML()),
+    upnext: () => (busy ? '' : upNextHTML({ more: !on('routines') })),
+    goals: () => (on('goals') ? goalCardsHTML() : ''),
+    cardio: () => (busy || !on('cardio') ? '' : cardioRowHTML()),
+    week: () => (on('week') ? `<div class="section"><span class="label">${t('today.thisWeek')}</span><button class="textbtn" data-progress>${t('progress.link')} →</button></div>${weekCardsHTML()}` : ''),
+    balance: () => (on('balance') ? balanceHTML() : ''),
+    body: () => (on('body') ? bodyHTML() : ''),
+    review: () => (on('review') ? reviewHTML() : ''),
+    routines: () => (busy || !on('routines') ? '' : routinesHTML())
+  };
   root.innerHTML = `<header class="brand">
       <div><strong>Setline</strong><span>${t('app.tagline')}</span></div>
       <button class="iconbtn" data-act="open-settings" aria-label="${t('settings.title')}">${I.settings}</button>
@@ -243,17 +263,9 @@ export function renderToday(root) {
     <h1 class="greet">${greeting(t(greetingKey(hour))).split(' ').map((w, i) => `<span class="gw" style="--i:${i}">${esc(w)}</span>`).join(' ')}</h1>
     <p class="sub${!busy && weekStreak(state.history, state.cardio, state.settings.weeklyGoal).streak ? ' streak' : ''}">${esc(subline())}</p>
     ${busy ? '' : driveNudgeHTML({ stale: true })}
-    ${busy || !on('checkin') ? '' : checkinHTML()}
+    ${busy ? resumeHTML() : weeklyCardHTML()}
     ${busy ? '' : deloadHTML()}
-    ${busy ? resumeHTML() : upNextHTML({ more: !on('routines') })}
-    ${on('goals') ? goalCardsHTML() : ''}
-    ${busy || !on('cardio') ? '' : cardioRowHTML()}
-    ${on('week') ? `<div class="section"><span class="label">${t('today.thisWeek')}</span><button class="textbtn" data-progress>${t('progress.link')} →</button></div>
-    ${weekCardsHTML()}` : ''}
-    ${on('balance') ? balanceHTML() : ''}
-    ${on('body') ? bodyHTML() : ''}
-    ${on('review') ? reviewHTML() : ''}
-    ${busy || !on('routines') ? '' : routinesHTML()}
+    ${todayOrderOf(state.settings).map(k => part[k]()).join('')}
     <button class="custom" data-act="customize">${I.settings}<span>${t('cust.open')}</span></button>`;
   nameParts(root);
   const fg = root.querySelector('.week .fg');

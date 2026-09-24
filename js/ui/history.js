@@ -1,5 +1,6 @@
 // History list and workout detail.
 import { state } from '../store.js';
+import { sessionHighlights } from '../highlights.js';
 import { volume, doneSetCount, elapsedSec } from '../workout.js';
 import { day, dayLong, time, minutes, total, weight, num } from '../format.js';
 import { esc } from './dom.js';
@@ -56,8 +57,12 @@ export function renderHistory(root) {
       + (earlier.length ? `<p class="group">${t('history.earlier')}</p><ul class="hlist">${earlier.map(item).join('')}</ul>` : '')
       + (!all.length ? `<p class="none">${t('history.empty')}</p>` : '');
   }
-  root.innerHTML = `<div class="tabtop"></div>
-    <div class="hhead"><h1 class="h1 tabh">${t('history.title')}</h1><button class="iconbtn" data-progress aria-label="${t('progress.title')}">${I.chart}</button></div>${seg}${body}`;
+  root.innerHTML = `<header class="top">
+      <button class="iconbtn" data-act="back" aria-label="${t('common.back')}">${I.back}</button>
+      <div class="ttl"><strong>${t('history.title')}</strong></div>
+      <button class="iconbtn" data-progress aria-label="${t('progress.title')}">${I.chart}</button>
+    </header>
+    <h1 class="h1">${t('history.title')}</h1>${seg}${body}`;
 }
 
 function prLabel(p) {
@@ -67,6 +72,24 @@ function prLabel(p) {
   if (p.kind === 'weight') return [t('pr.weight'), `${kg} × ${p.reps}`];
   if (p.kind === 'e1rm') return [t('pr.e1rm'), `${weight(p.value, unit, lang)} ${u()}`];
   return [t('pr.reps', { kg }), `${p.reps}`];
+}
+
+// How this session went against the last time: a headline, then lift by lift.
+function highlightsHTML(w) {
+  const { t, lang } = state;
+  const h = sessionHighlights(w, state.history, { weeklyGoal: state.settings.weeklyGoal });
+  if (!h.lifts.length) return '';
+  const unit = state.settings.unit, u = t(`unit.${unit}`);
+  const compared = h.lifts.filter(l => l.trend !== 'new').length;
+  const head = compared ? t('hl.stronger', { n: h.up, of: compared }) : t('hl.first');
+  const bits = [h.vsLast ? t('hl.volume', { sign: h.vsLast.pct > 0 ? '+' : h.vsLast.pct < 0 ? '−' : '±', pct: Math.abs(h.vsLast.pct) }) : '', t('hl.week', { n: h.week.done, goal: h.week.goal })].filter(Boolean);
+  const arrow = { up: '↑', down: '↓', same: '=', new: '•' };
+  return `<div class="hl solid"><div class="hlhead"><strong>${esc(head)}</strong><span>${esc(bits.join(' · '))}</span></div>
+    <ul>${h.lifts.map((l, i) => `<li class="${l.trend}" style="--i:${i}"><span class="ar">${arrow[l.trend]}</span>
+      <span class="n">${esc(state.catalog.name(l.exerciseId, lang))}</span>
+      <span class="s">${esc(weight(l.now.kg, unit, lang))} × ${l.now.reps}${l.last ? `<small>${esc(t('hl.was', { set: `${weight(l.last.kg, unit, lang)} × ${l.last.reps}` }))}</small>` : `<small>${esc(t('hl.firstLift'))}</small>`}</span>
+      ${l.trend === 'up' || l.trend === 'down' ? `<b class="d">${l.delta > 0 ? '+' : '−'}${esc(weight(Math.abs(l.delta), unit, lang))} ${u}</b>` : '<b class="d"></b>'}</li>`).join('')}</ul>
+    <p class="hlnote">${esc(t('hl.note'))}</p></div>`;
 }
 
 export function renderDetail(root, id) {
@@ -94,6 +117,7 @@ export function renderDetail(root, id) {
       <div><b data-count="${Math.round(toDisplay(volume(w), state.settings.unit))}">${total(volume(w), state.settings.unit, lang)}</b><span>${t('history.volume')}, ${u()}</span></div>
       <div><b data-count="${doneSetCount(w)}">${doneSetCount(w)}</b><span>${t('history.setsLabel')}</span></div>
     </div>
+    ${highlightsHTML(w)}
     ${prs ? `<div class="prs solid"><span class="tag">${t('history.newPrs')}</span><ul>${prs}</ul></div>` : ''}
     ${w.exercises.map(ex => `<div class="exblock solid"><h3><button data-ex="${esc(ex.exerciseId)}">${esc(state.catalog.name(ex.exerciseId, lang))} <span class="chev">›</span></button></h3><ol>
       ${ex.sets.map((s, k) => `<li><span class="idx">${k + 1}</span><span class="val"><b>${weight(s.kg, state.settings.unit, lang)}</b> ${u()} × <b>${s.reps}</b></span>${prSets.has(s.id) ? `<span class="tag sm">${t('workout.pr')}</span>` : '<span></span>'}</li>`).join('')}

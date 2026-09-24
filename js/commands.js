@@ -45,6 +45,13 @@ export function resolve(intent, snap, t, lang) {
 
   const needWorkout = () => {
     if (w) return null;
+    // clearly training ("I'm on T-bar row, 80 for 9") or nothing to choose from: just start and do it
+    const lifting = (['LogSet', 'LogSets', 'AddExercise'].includes(intent.type) && (intent.exerciseId || intent.routineId)) || intent.type === 'LogBatch';
+    if (lifting || !snap.routines.length) {
+      const r = intent.routineId && snap.routines.find(x => x.id === intent.routineId);
+      const then = { ...intent, routineId: undefined };
+      return resolve(r ? { type: 'StartRoutine', routineId: r.id, then, heard: intent.heard, lang } : { type: 'StartEmpty', then, heard: intent.heard, lang }, snap, t, lang);
+    }
     const choices = snap.routines.map(r => ({ label: routineName(r, lang), intent: { type: 'StartRoutine', routineId: r.id, then: intent } }));
     choices.push({ label: t('today.startEmpty'), intent: { type: 'StartEmpty', then: intent } });
     return cmd('ask', { title: t('voice.noWorkout'), sub: t('voice.noWorkoutSub'), choices, say: say(t('voice.noWorkout')) });
@@ -60,12 +67,19 @@ export function resolve(intent, snap, t, lang) {
   const lastDone = ex => { const i = ex ? W.lastDoneIndex(ex) : -1; return i === -1 ? null : { i, set: ex.sets[i] }; };
 
   // one or more sets on an exercise (adds the exercise if it isn't in the workout)
+  // No exercise named and none on screen: ask which, with the ones you do most, instead of failing
+  const whichExercise = () => {
+    const ids = Object.keys(snap.usage || {}).sort((a, b) => snap.usage[b] - snap.usage[a]).filter(id => snap.catalog?.get(id)).slice(0, 4);
+    const choices = ids.map(id => ({ label: name(id), intent: { ...intent, exerciseId: id } }));
+    choices.push({ label: t('voice.pickOther'), intent: { type: 'PickExercise', then: intent } });
+    return cmd('ask', { title: t('voice.whichExercise'), sub: t('voice.heard', { text: heard }), choices, say: say(t('voice.whichExercise')) });
+  };
   const logCommand = (kg, reps, count, exerciseId, subText) => {
     const check = W.validateSet(kg, reps);
     if (!check.ok) return err(check.error === 'kg' ? 'invalid.kg' : 'invalid.reps', null, { title: t(check.error === 'kg' ? 'invalid.kg' : 'invalid.reps', { max: kgTxt(W.LIMITS.kgMax), unit: u }) });
     const idx = exerciseId ? w.exercises.findIndex(e => e.exerciseId === exerciseId) : w.current;
     const exId = exerciseId || cur()?.exerciseId;
-    if (!exId) return err('voice.noExercise');
+    if (!exId) return whichExercise();
     const ex = idx >= 0 ? w.exercises[idx] : { sets: [] };
     const n = W.nextSetNumber(ex);
     count = Math.max(1, Math.min(10, count || 1));
@@ -94,7 +108,7 @@ export function resolve(intent, snap, t, lang) {
       if (!check.ok) return err('voice.didntCatch', null, { title: t(check.error === 'kg' ? 'invalid.kg' : 'invalid.reps', { max: kgTxt(W.LIMITS.kgMax), unit: u }) });
     }
     const exId = exerciseId || cur()?.exerciseId;
-    if (!exId) return err('voice.noExercise');
+    if (!exId) return whichExercise();
     const idx = exerciseId ? w.exercises.findIndex(e => e.exerciseId === exerciseId) : w.current;
     const n = W.nextSetNumber(idx >= 0 ? w.exercises[idx] : { sets: [] });
     const heavy = sets.some(s => W.validateSet(s.kg, s.reps).confirm.length);
@@ -151,6 +165,30 @@ export function resolve(intent, snap, t, lang) {
     case 'LogSet': {
       const need = needWorkout(); if (need) return need;
       return logCommand(intent.kg, intent.reps, intent.count, intent.exerciseId || null);
+    }
+    case 'LogBatch': {
+      // a whole session said at once: every lift gets its sets, one card, one undo
+      const need = needWorkout(); if (need) return need;
+      for (const it of intent.items) {
+        const check = W.validateSet(it.kg, it.reps);
+        if (!check.ok) return err('voice.didntCatch', null, { title: t(check.error === 'kg' ? 'invalid.kg' : 'invalid.reps', { max: kgTxt(W.LIMITS.kgMax), unit: u }) });
+      }
+      const sets = intent.items.reduce((a, it) => a + it.count, 0);
+      const fn = (cw, now) => {
+        let x = cw;
+        for (const it of intent.items) {
+          let i = x.exercises.findIndex(e => e.exerciseId === it.exerciseId);
+          if (i === -1) { x = W.addExercise(x, it.exerciseId); i = x.exercises.length - 1; }
+          for (let k = 0; k < it.count; k++) x = W.logSet(x, i, { kg: it.kg, reps: it.reps }, now, W.restFor(x.exercises[i], settings.restByEx, settings.restSec)).workout;
+          x = { ...x, current: i };
+        }
+        return x;
+      };
+      return cmd('auto', {
+        title: t('voice.batchTitle', { n: intent.items.length, sets }),
+        sub: intent.items.map(it => `${name(it.exerciseId)} ${it.count} × ${setTxt(it.kg, it.reps)}`).join(' · '),
+        say: say(t('say.batch', { n: intent.items.length, sets })), run: { op: 'update', fn, nav: 'workout' }
+      });
     }
     case 'LogSets': {
       const need = needWorkout(); if (need) return need;
