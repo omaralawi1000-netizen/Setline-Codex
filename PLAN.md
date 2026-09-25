@@ -1,6 +1,6 @@
 # FORM — current checkpoint
 
-Status: complete locally; deployment verification in progress. New build plan: form/PLAN.md. Previous plans: docs/SETLINE-PLAN.md. Prior source: archive/setline-1.20.0.
+Status: released. FORM 2.0.0 is live at https://omaralawi1000-netizen.github.io/Setline-Codex/. GitHub Pages deployment succeeded; a fresh Chrome session verified the live title, version, interface and both local fonts with no page errors. New build plan: form/PLAN.md. Previous plans: docs/SETLINE-PLAN.md. Prior source: archive/setline-1.20.0.
 
 ## Completed
 - New editorial interface: Today/workout, Journal, Routines, Settings. CSS plate artwork, spring presses, entry/set motion, reactive voice meter, glass dock, local fonts and install icons. Reduced-motion fallback.
