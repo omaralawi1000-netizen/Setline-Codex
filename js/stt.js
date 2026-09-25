@@ -63,10 +63,13 @@ export async function transcribe(blob, opts) {
 
 // Key check: list models. Returns 'ok' | 'bad' | 'offline' | status code.
 export async function testGroqKey(key) {
+  if (!key) return 'bad';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(GROQ_MODELS, { headers: { Authorization: `Bearer ${key}` } });
+    const res = await fetch(GROQ_MODELS, { headers: { Authorization: `Bearer ${key}` }, signal: controller.signal });
     if (res.ok) return 'ok';
     if (res.status === 401 || res.status === 403) return 'bad';
     return String(res.status);
-  } catch { return 'offline'; }
+  } catch { return 'offline'; } finally { clearTimeout(timeout); }
 }

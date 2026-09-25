@@ -1,0 +1,21 @@
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { state, W, context, command, interpret, signature } from '../form/engine.js';
+import { starterRoutines } from '../js/routines.js';
+import { DEFAULTS } from '../js/settings.js';
+
+beforeEach(()=>{state.settings={...DEFAULTS,spoken:'off',autoAdvance:false};state.lang='en';state.history=[];state.prs=[];state.undo=[];state.routines=starterRoutines();state.active=W.createWorkout(W.planFromHistory(state.routines[0],[]));});
+const apply=text=>{const cmd=command(interpret(text));assert.equal(cmd.run?.op,'update',text);state.active=cmd.run.fn(state.active,Date.now());return cmd;};
+test('FORM context carries the last working weight for reps-only logging',()=>{apply('80 kilos for 8');apply('10 reps');assert.equal(context().current.lastSet.kg,80);assert.equal(context().current.lastSet.reps,10);});
+test('FORM uses one command pipeline for English and Danish corrections',()=>{apply('80 kilo 8 gentagelser');apply('samme igen');apply('læg 2,5 til');apply('en rep mere');assert.equal(state.active.exercises[0].sets.filter(s=>s.done).length,2);assert.equal(context().current.lastSet.kg,82.5);assert.equal(context().current.lastSet.reps,9);});
+test('FORM never auto-confirms finishing or discarding',()=>{apply('80 for 8');assert.equal(command(interpret('finish workout')).kind,'confirm');assert.equal(command(interpret('discard workout')).kind,'confirm');});
+test('FORM signatures detect same-count edits and rest changes',()=>{apply('80 for 8');const a=signature();state.active=W.editLastDone(state.active,0,{kg:82.5,reps:8});assert.notEqual(signature(),a);const b=signature();state.active=W.adjustRest(state.active,15);assert.notEqual(signature(),b);});
+test('FORM questions with missing performance return information rather than fabricated results',()=>{const c=command(interpret('what did I do last time?'));assert.equal(c.kind,'info');assert.equal(c.run,null);assert.ok(c.title);});
+test('FORM unit boundary preserves canonical kilograms',()=>{state.settings={...state.settings,unit:'lb'};apply('100 pounds for 8');assert.ok(Math.abs(context().current.lastSet.kg-45.359)<.01);});
+test('FORM voice can start a named routine without an active session',()=>{state.active=null;const c=command(interpret('start push day'));assert.equal(c.run.op,'start');assert.equal(c.run.template.routineId,state.routines[0].id);});
+test('FORM invalid reps do not produce a runnable command',()=>{const c=command(interpret('80 kilos for 0 reps'));assert.equal(c.run,null);});
+test('FORM entry point and offline assets reference the new interface',()=>{const html=readFileSync(new URL('../index.html',import.meta.url),'utf8'),sw=readFileSync(new URL('../sw.js',import.meta.url),'utf8');assert.match(html,/form\/app.js/);assert.doesNotMatch(html,/src="js\/app.js"/);for(const file of ['app.js','engine.js','voice.js','style.css','fonts.css','icon.svg'])assert.ok(sw.includes(`form/${file}`));});
+test('FORM modules parse without a bundler',()=>{for(const f of readdirSync(new URL('../form/',import.meta.url)).filter(f=>f.endsWith('.js')))execFileSync(process.execPath,['--check',fileURLToPath(new URL('../form/'+f,import.meta.url))],{stdio:'pipe'});});

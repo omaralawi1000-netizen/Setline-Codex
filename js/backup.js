@@ -36,7 +36,7 @@ function workout(w) {
 }
 function routine(r) {
   return r && isId(r.id) && isStr(r.name, 80) && Array.isArray(r.exercises) && r.exercises.length <= 30 &&
-    r.exercises.every(e => e && isId(e.exerciseId) && Array.isArray(e.sets) && e.sets.length >= 1 && e.sets.length <= 20 && e.sets.every(s => Number.isInteger(s.reps) && s.reps >= 1 && s.reps <= 300));
+    r.exercises.every(e => e && isId(e.exerciseId) && Array.isArray(e.sets) && e.sets.length <= 20 && e.sets.every(s => s.reps === null || Number.isInteger(s.reps) && s.reps >= 1 && s.reps <= 300));
 }
 const cardioOk = c => c && isId(c.id) && CARDIO_TYPES.some(t => t.id === c.type) && ts(c.startedAt) && isNum(c.durationSec, 1, 43200) && (c.distanceKm == null || isNum(c.distanceKm, 0, 400)) && (c.zone == null || [1, 2, 3, 4, 5].includes(c.zone));
 const exerciseOk = e => e && isId(e.id) && isStr(e.en, 80) && isStr(e.da, 80) && Array.isArray(e.muscles) && isStr(e.equipment, 40);

@@ -1,9 +1,22 @@
 // Service worker: precached app shell, runtime cache for Google Fonts.
 // Bump VERSION on every release (keep js/version.js in sync).
-const VERSION = '1.20.0';
+const VERSION = '2.0.0';
 const CACHE = 'setline-codex-' + VERSION;
 const FONTS = 'setline-codex-fonts';
 const SHELL = [
+  'form/app.js',
+  'form/engine.js',
+  'form/personal.js',
+  'form/personal-ui.js',
+  'form/voice.js',
+  'form/style.css',
+  'form/fonts.css',
+  'form/fonts/font-0.woff2',
+  'form/fonts/font-1.woff2',
+  'form/fonts/font-2.woff2',
+  'form/icon.svg',
+  'form/icon-192.png',
+  'form/icon-512.png',
   './',
   'index.html',
   'manifest.webmanifest',

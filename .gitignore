@@ -1,0 +1,5 @@
+# User-owned profile fixtures and generated test artifacts stay private/local.
+*private*profile*.json
+FORM-Omar*.json
+test-results/
+node_modules/

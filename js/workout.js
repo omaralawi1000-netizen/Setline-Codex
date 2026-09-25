@@ -19,6 +19,7 @@ export function createWorkout(template = {}, now = Date.now(), id = uid()) {
   const exercises = (template.exercises || []).slice(0, LIMITS.exercisesPerWorkout).map(e => ({
     id: uid(),
     exerciseId: e.exerciseId,
+    ...(e.weightBasis ? { weightBasis: e.weightBasis, weightHint: e.weightHint ?? null } : {}),
     ...(e.suggestion ? { suggestion: e.suggestion } : {}),
     ...(Number.isFinite(e.restSec) ? { restSec: e.restSec } : {}),
     sets: (e.sets || []).slice(0, LIMITS.setsPerExercise).map(s => makeSet({ kg: s.kg ?? null, reps: s.reps ?? null })),
@@ -294,6 +295,7 @@ export function planFromHistory(routine, history, suggestFor = null) {
       const sg = suggestFor?.(e.exerciseId, e.sets[0]?.reps ?? null) || null;
       return {
         exerciseId: e.exerciseId,
+        ...(e.weightBasis ? { weightBasis: e.weightBasis, weightHint: e.weightHint ?? null } : {}),
         suggestion: sg ? { reason: sg.reason, from: sg.from, kg: sg.kg } : null,
         sets: e.sets.map((s, i) => ({
           reps: sg && sg.reason === 'reps' ? sg.reps : s.reps,

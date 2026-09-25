@@ -1,0 +1,14 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { validateProfile, validateCheckin, weightTrend, routineRecords } from '../form/personal.js';
+import { createWorkout, planFromHistory } from '../js/workout.js';
+import { suggested, state } from '../form/engine.js';
+import { makeBackup, validateBackup } from '../js/backup.js';
+const p={kind:'form-training-profile',version:1,name:'Test',age:18,priority:'Performance',notes:'No invented targets',unknowns:['Reps'],routines:[{id:'r-private-test',name:'Legs',days:[1],exercises:[{id:'hack-squat',name:'Hack squat',equipment:'machine',muscles:['quads'],sets:3,kg:70,reps:null,basis:'added'}]}]};
+test('personal import accepts intentionally unknown reps without inventing a target',()=>{assert.ok(validateProfile(p));const r=routineRecords(p)[0];assert.equal(r.exercises[0].sets[0].reps,null);state.history=[];const w=createWorkout(planFromHistory(r,[]));assert.equal(w.exercises[0].weightBasis,'added');assert.deepEqual(suggested(w.exercises[0]),{kg:70,reps:null});});
+test('unknown set count is retained as an open exercise',()=>{const q=structuredClone(p);q.routines[0].exercises[0].sets=null;assert.ok(validateProfile(q));assert.equal(routineRecords(q)[0].exercises[0].sets.length,0);});
+test('profile validation rejects impossible or malformed values before writes',()=>{const q=structuredClone(p);q.routines[0].exercises[0].kg=-1;assert.equal(validateProfile(q),false);q.routines[0].exercises[0].kg=70;q.routines[0].days=[9];assert.equal(validateProfile(q),false);});
+test('calendar averages do not treat missing days as zero or seven old entries as a week',()=>{const now=+new Date('2026-09-25T12:00:00');const t=weightTrend([{date:'2026-09-25',kg:90},{date:'2026-09-23',kg:91},{date:'2026-09-20',kg:89},{date:'2026-09-18',kg:91},{date:'2026-09-16',kg:92},{date:'2026-09-13',kg:90},{date:'2026-08-01',kg:100}],now);assert.equal(t.average,90);assert.equal(t.previous,91);assert.equal(t.change,-1);});
+test('single weigh-ins cannot establish a weekly trend',()=>{const t=weightTrend([{date:'2026-09-25',kg:90},{date:'2026-09-18',kg:92}],+new Date('2026-09-25T12:00:00'));assert.equal(t.change,null);});
+test('check-ins distinguish missing intake from explicit zero',()=>{assert.ok(validateCheckin({date:'2026-09-25',kcal:null,note:''}));assert.ok(validateCheckin({date:'2026-09-25',kcal:0,note:''}));assert.equal(validateCheckin({date:'2026-09-25',weightKg:0,note:''}),false);assert.equal(validateCheckin({date:'2026-09-25',wrestlingMinutes:-1,note:''}),false);});
+test('workout backups roundtrip personal routines with unconfirmed reps',()=>{const original=state.routines;state.routines=routineRecords(p);const b=makeBackup(state);assert.equal(validateBackup(b).ok,true);assert.equal(validateBackup(b).data.routines[0].exercises[0].sets[0].reps,null);state.routines=original;});
