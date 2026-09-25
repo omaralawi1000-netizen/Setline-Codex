@@ -1,6 +1,6 @@
 # FORM — current checkpoint
 
-Status: refinement ready. FORM 2.1.0 contains the Coach/navigation refinement and requires the next GitHub Pages deployment. FORM 2.0.0 is the last verified live release at https://omaralawi1000-netizen.github.io/Setline-Codex/. New build plan: form/PLAN.md. Previous plans: docs/SETLINE-PLAN.md. Prior source: archive/setline-1.20.0.
+Status: released. FORM 2.1.0 is live at https://omaralawi1000-netizen.github.io/Setline-Codex/. GitHub Pages deployment succeeded and the live service worker, Coach sheet, and dock were verified. New build plan: form/PLAN.md. Previous plans: docs/SETLINE-PLAN.md. Prior source: archive/setline-1.20.0.
 
 ## Completed
 - New editorial interface: Today/workout, Journal, Routines, Settings. CSS plate artwork, spring presses, entry/set motion, reactive voice meter, glass dock, local fonts and install icons. Reduced-motion fallback.
